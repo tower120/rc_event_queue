@@ -1,19 +1,18 @@
 use std::sync::Arc;
-use crate::Event::{Chunk, CHUNK_SIZE};
 use std::sync::atomic::Ordering;
 use std::ptr::null_mut;
+use crate::event::Chunk;
 
-struct EventReader<T>
-    where T:Clone
+pub struct EventReader<T, const CHUNK_SIZE : usize>
 {
-    event_chunk : *mut Chunk<T>,
+    /// Always valid
+    pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE>,
     /// in-chunk index
-    index : usize,
+    pub(super) index : usize,
 }
 
 
-impl<T> EventReader<T>
-    where T:Clone
+impl<T, const CHUNK_SIZE : usize> EventReader<T, CHUNK_SIZE>
 {
     /*
     // TODO: Try return scoped struct with 'a and iter over &T
@@ -44,6 +43,15 @@ impl<T> EventReader<T>
 
         Some(value.clone())
     }*/
+
+    pub fn drain(&mut self){
+        todo!()
+    }
 }
 
-// TODO: Drop -1 event.readers_count
+
+impl<T, const CHUNK_SIZE : usize> Drop for EventReader<T, CHUNK_SIZE>{
+    fn drop(&mut self) {
+        unsafe { (*(*self.event_chunk).event).unsubscribe(self); }
+    }
+}

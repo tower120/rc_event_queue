@@ -1,7 +1,6 @@
-mod Event;
 mod EventReader;
 mod chunk;
-mod lockfree_list;
+mod event;
 
 #[cfg(test)]
 mod tests {
