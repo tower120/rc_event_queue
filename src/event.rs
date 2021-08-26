@@ -1,3 +1,4 @@
+//! Event queue. Multi consumers, multi producers.
 //! Lock-free reading (almost as fast as slice read). Push under lock.
 //!
 //! Linked list of fix-sized Chunks.
