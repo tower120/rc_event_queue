@@ -39,10 +39,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         let index = self.storage_len.load(Ordering::Relaxed);
         debug_assert!(index < CHUNK_SIZE);
 
-        unsafe {
-            *self.get_storage().get_unchecked_mut(index)
-                = MaybeUninit::new(value);
-        }
+        *self.get_storage().get_unchecked_mut(index) = MaybeUninit::new(value);
 
         self.storage_len.store(index + 1, Ordering::Release);
     }
