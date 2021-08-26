@@ -31,11 +31,6 @@ impl<T, const CHUNK_SIZE : usize> EventReader<T, CHUNK_SIZE>
         // }
         Iter::new(self)
     }
-
-    fn mark_chunks_read(&mut self){
-        // from self.chunk:index to chunk:index
-        todo!()
-    }
 }
 
 
@@ -121,7 +116,6 @@ impl<'a, T, const CHUNK_SIZE: usize> Drop for Iter<'a, T, CHUNK_SIZE>{
         // Cleanup
         let event = unsafe {&*self.event_chunk.event};
         if event.auto_cleanup{
-            // fast check for cleanup need
             let readers_count = event.readers.load(Ordering::Relaxed);
             let chunk_read_times = unsafe{(*self.event_reader.event_chunk).read_completely_times.load(Ordering::Relaxed)};
 

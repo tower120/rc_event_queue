@@ -1,13 +1,11 @@
-//! Lock-free reading (absolutely no locks). Push under lock.
-//! Grow only.
+//! Lock-free reading (almost as fast as slice read). Push under lock.
 //!
 //! Linked list of fix-sized Chunks.
 //! Each Chunk have "read counter". Whenever "read counter" == "readers",
 //! it is safe to delete that chunk.
-//! "read counter" increases whenever reader reached end of the chunk.
+//! "read counter" increases whenever reader reaches end of the chunk.
 //!
 //! [Event] live, until [EventReader]s live.
-//! No "clean" by design for Event's queue.
 //!
 //! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
 //!
