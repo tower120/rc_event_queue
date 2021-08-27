@@ -6,8 +6,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::ptr::null_mut;
-use crate::event::{Chunk, Event, foreach_full_chunk};
+use crate::event::{Chunk, Event, foreach_chunk};
 use std::ptr;
+use std::ops::ControlFlow::{Continue, Break};
 
 pub struct EventReader<T, const CHUNK_SIZE : usize>
 {
@@ -103,12 +104,13 @@ impl<'a, T, const CHUNK_SIZE: usize> Drop for Iter<'a, T, CHUNK_SIZE>{
     fn drop(&mut self) {
         // 1. Mark passed chunks as read
         unsafe {
-            foreach_full_chunk(
+            foreach_chunk(
                 self.event_reader.event_chunk,
                 self.event_chunk,
-                self.index,
                 |chunk| {
+                    debug_assert!(chunk.storage.len() == chunk.storage.capacity());
                     chunk.read_completely_times.fetch_add(1, Ordering::AcqRel);
+                    Continue(())
                 }
             );
         }
