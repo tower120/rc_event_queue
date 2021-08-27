@@ -129,12 +129,6 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
     pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE>){
         let list = self.list.lock().unwrap();
 
-        let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
-        if prev_readers == 1{
-            // Safe to destruct
-            unsafe { Arc::decrement_strong_count(self); }
-        }
-
         // -1 read_completely_times for each chunk that reader passed
         unsafe {
             foreach_full_chunk(
@@ -145,6 +139,13 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
                     chunk.read_completely_times.fetch_sub(1, Ordering::AcqRel);
                 }
             );
+        }
+
+        let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
+        if prev_readers == 1{
+            std::mem::drop(list);
+            // Safe to self-destruct
+            unsafe { Arc::decrement_strong_count(self); }
         }
     }
 
