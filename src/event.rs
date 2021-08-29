@@ -79,6 +79,7 @@ impl Default for EventSettings{
     }
 }
 
+// TODO: rename to EventQueue
 impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
 {
     // TODO: return Pin
@@ -196,10 +197,10 @@ impl<T, const CHUNK_SIZE : usize> Drop for Event<T, CHUNK_SIZE>{
         let list = self.list.lock().unwrap();
         debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
         unsafe{
-            let mut node = list.first;
-            while node != null_mut() {
-                let _ = Box::from_raw(node);    // destruct with box destructor
-                node = (*node).next.load(Ordering::Relaxed);
+            let mut node_ptr = list.first;
+            while node_ptr != null_mut() {
+                let node = Box::from_raw(node_ptr);    // destruct on exit
+                node_ptr = node.next.load(Ordering::Relaxed);
             }
         }
     }
@@ -324,6 +325,14 @@ mod tests {
             assert!(destruct_counter.load(Ordering::Relaxed) == 0);
         }
         assert!(destruct_counter.load(Ordering::Relaxed) == 4);
+    }
+
+    #[test]
+    fn huge_push_test() {
+        let event = Event::<usize, 4>::new(Default::default());
+        for i in 0..100000{
+            event.push(i);
+        }
     }
 
 }
