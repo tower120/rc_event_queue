@@ -225,12 +225,15 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize>
         }
 
         let chunk = &*chunk_ptr;
+        // chunk can be dropped inside `func`, so fetch `next` beforehand
+        let next_chunk_ptr = chunk.next.load(Ordering::Acquire);
+
         let proceed = func(chunk);
         if proceed == Break(()) {
             break;
         }
 
-        chunk_ptr = chunk.next.load(Ordering::Acquire);
+        chunk_ptr = next_chunk_ptr;
     }
 }
 
@@ -332,6 +335,11 @@ mod tests {
         let event = Event::<usize, 4>::new(Default::default());
         for i in 0..100000{
             event.push(i);
+        }
+
+        let mut reader = event.subscribe();
+
+        for i in reader.iter(){
         }
     }
 
