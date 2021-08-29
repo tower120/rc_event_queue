@@ -55,10 +55,11 @@ pub struct Iter<'a, T, const CHUNK_SIZE: usize>
 impl<'a, T, const CHUNK_SIZE: usize> Iter<'a, T, CHUNK_SIZE>{
     fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE>) -> Self{
         let chunk = unsafe{&*event_reader.event_chunk};
+        let index = event_reader.index;
         Self{
             event_reader : event_reader,
             event_chunk  : chunk,
-            index : 0,
+            index : index,
             chunk_len : chunk.storage.storage_len.load(Ordering::Acquire)
         }
     }
