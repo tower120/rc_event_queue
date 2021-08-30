@@ -68,7 +68,7 @@ pub struct Event<T, const CHUNK_SIZE : usize>{
 }
 
 pub struct EventSettings{
-    auto_cleanup: bool
+    pub auto_cleanup: bool
 }
 
 impl Default for EventSettings{

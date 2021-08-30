@@ -1,6 +1,6 @@
 mod EventReader;
 mod chunk;
-mod event;
+pub mod event;
 
 
 #[inline]
