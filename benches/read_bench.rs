@@ -16,7 +16,7 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
         let mut reader = event.subscribe();
 
         let start = Instant::now();
-        loop{
+        'outer: loop{
             // simulate "read sessions"
             // Testing this, because constructing iterator _and switching chunk_
             // is the only potentially "heavy" operations
@@ -25,7 +25,7 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
             for n in 0..read_session_size {
                 let next = iter.next();
                 match next{
-                    None => {break;}
+                    None => {break 'outer;}
                     Some(i) => {black_box(i);}
                 }
             }
