@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use events::fibonacci;
 use events::event::{Event, EventSettings};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -10,10 +9,10 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = Event::<usize, 512>::new(EventSettings{auto_cleanup: false});
+        let mut reader = event.subscribe();
         for i in 0..queue_size{
             event.push(i);
         }
-        let mut reader = event.subscribe();
 
         let start = Instant::now();
         'outer: loop{
@@ -39,10 +38,10 @@ fn bench_event_reader_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = Event::<usize, 512>::new(EventSettings{auto_cleanup: false});
+        let mut reader = event.subscribe();
         for i in 0..queue_size{
             event.push(i);
         }
-        let mut reader = event.subscribe();
 
         let start = Instant::now();
         for i in reader.iter(){

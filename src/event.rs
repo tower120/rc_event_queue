@@ -11,7 +11,7 @@
 //! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
 //!
 
-use std::sync::atomic::{AtomicPtr, Ordering, AtomicIsize, AtomicUsize};
+use std::sync::atomic::{AtomicPtr, Ordering, AtomicIsize, AtomicUsize, AtomicU64};
 use crate::chunk::ChunkStorage;
 use std::sync::{Mutex, MutexGuard, Arc};
 use std::ptr::null_mut;
@@ -19,10 +19,17 @@ use crate::EventReader::EventReader;
 use std::cell::UnsafeCell;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
+use crate::utils::U32Pair;
+use std::borrow::BorrowMut;
+use crate::cursor;
+use std::io::SeekFrom::Start;
 
 // TODO: hide CHUNK_SIZE
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize>{
-    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
+    /// Just to compare chunks by age/sequence fast. Brings order.
+    /// Will overflow after years... So just ignore that possibility.
+    pub(super) id      : usize,
+    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,       // TODO: put last
     pub(super) next    : AtomicPtr<Self>,
 
     // -----------------------------------------
@@ -37,16 +44,21 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize>{
     // Never changes.
     // TODO: reference?
     pub(super) event : *const Event<T, CHUNK_SIZE>,
+
+
+    pub(super) storage_len_and_start_point_epoch : AtomicU64
 }
 
 impl<T, const CHUNK_SIZE : usize> Chunk<T, CHUNK_SIZE >
 {
-    fn new(event : *const Event<T, CHUNK_SIZE>) -> Box<Self>{
+    fn new(id: usize, event : *const Event<T, CHUNK_SIZE>) -> Box<Self>{
         Box::new(Self{
+            id      : id,
             storage : ChunkStorage::new(),
             next    : AtomicPtr::new(null_mut()),
             read_completely_times : AtomicUsize::new(0),
-            event : event
+            event : event,
+            storage_len_and_start_point_epoch : AtomicU64::new(0)
         })
     }
 }
@@ -55,14 +67,25 @@ impl<T, const CHUNK_SIZE : usize> Chunk<T, CHUNK_SIZE >
 pub struct List<T, const CHUNK_SIZE : usize>{
     first: *mut Chunk<T, CHUNK_SIZE>,
     last : *mut Chunk<T, CHUNK_SIZE>,
+    chunk_id_counter: usize
+}
+
+pub struct StartPoint<T, const CHUNK_SIZE : usize>{
+    pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE>,
+    /// in-chunk index
+    pub(super) index : usize,
 }
 
 pub struct Event<T, const CHUNK_SIZE : usize>{
-    list  : Mutex<List<T, CHUNK_SIZE>>,     // TODO: fast spin lock here
+    list  : Mutex<List<T, CHUNK_SIZE>>,     // TODO: fast spin lock here / parking_lot
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
     pub(super) readers: AtomicUsize,
+
+    // TODO: start_cursor
+    pub(super) start_point_epoch: AtomicUsize,
+    pub(super) start_point : parking_lot::Mutex<StartPoint<T, CHUNK_SIZE>>,
 
     pub(super) auto_cleanup: bool
 }
@@ -84,12 +107,15 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
 {
     // TODO: return Pin
     pub fn new(settings: EventSettings) -> Arc<Self>{
-        let node = Chunk::<T, CHUNK_SIZE >::new(null_mut());
+        let node = Chunk::<T, CHUNK_SIZE >::new(0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::new(Self{
-            list    : Mutex::new(List{first: node_ptr, last:node_ptr}),
+            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
-            auto_cleanup : settings.auto_cleanup
+            auto_cleanup : settings.auto_cleanup,
+
+            start_point_epoch : AtomicUsize::new(0),
+            start_point       : parking_lot::Mutex::new(StartPoint{event_chunk: node_ptr, index:0})
         });
         unsafe {(*node_ptr).event = Arc::as_ptr(&this)};
         this
@@ -100,9 +126,10 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
         let mut node = unsafe{&mut *list.last};
 
         // Relaxed because we update only under lock
-        if /*unlikely*/ node.storage.storage_len.load(Ordering::Relaxed) == CHUNK_SIZE{
+        if /*unlikely*/ node.storage.len(Ordering::Relaxed) == CHUNK_SIZE{
             // make new node
-            let new_node = Chunk::<T, CHUNK_SIZE >::new(self);
+            list.chunk_id_counter += 1;
+            let new_node = Chunk::<T, CHUNK_SIZE >::new(list.chunk_id_counter, self);
             let new_node_ptr = Box::into_raw(new_node);
             node.next = AtomicPtr::new(new_node_ptr);
 
@@ -111,8 +138,15 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
         }
 
         unsafe{node.storage.push_unchecked(value)};
+
+        node.storage_len_and_start_point_epoch.store(U32Pair::from_u32(
+            node.storage.len(Ordering::Relaxed) as u32,
+            self.start_point_epoch.load(Ordering::Relaxed) as u32
+        ).as_u64(), Ordering::Release);
     }
 
+    /// EventReader will start receive events from NOW.
+    /// It will not see events that was pushed BEFORE subscription.
     pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE>{
         let list = self.list.lock().unwrap();
 
@@ -122,10 +156,20 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
             unsafe { Arc::increment_strong_count(self); }
         }
 
-        EventReader{
+        let mut event_reader = EventReader{
             event_chunk : list.first,
             index : 0,
-        }
+            start_point_epoch : self.start_point_epoch.load(Ordering::Relaxed)
+        };
+
+        // TODO: ?? storage.get_last_index, then release list lock. try_cleanup = auto_cleanup
+
+        // Move to an end. This will increment read_completely_times in all passed chunks correctly.
+        event_reader.set_forward_position(
+            list.last,
+            unsafe{ (*list.last).storage.get_last_index(Ordering::Relaxed) },
+            false);
+        event_reader
     }
 
     // Called from EventReader Drop
@@ -138,7 +182,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
                 list.first,
                 event_reader.event_chunk,
                 |chunk| {
-                    debug_assert!(chunk.storage.len() == chunk.storage.capacity());
+                    debug_assert!(chunk.storage.len(Ordering::Acquire) == chunk.storage.capacity());
                     chunk.read_completely_times.fetch_sub(1, Ordering::AcqRel);
                     Continue(())
                 }
@@ -154,6 +198,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
     }
 
     // TODO: rename to shrink_to_fit
+    // TODO: try inline never
     pub(super) fn free_read_chunks(&self){
         let mut list = self.list.lock().unwrap();
 
@@ -183,8 +228,14 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
         }
     }
 
-    pub fn clean(){
-        todo!()
+    pub fn clear(&self){
+        let mut list = self.list.lock().unwrap();
+
+        let chunk = unsafe{ &*list.last };
+        let index = chunk.storage.len(Ordering::Relaxed);
+
+        *self.start_point.lock() = StartPoint{event_chunk:chunk, index: index};
+        self.start_point_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
 
@@ -235,112 +286,4 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize>
 
         chunk_ptr = next_chunk_ptr;
     }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use crate::event::{Event, EventSettings};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use itertools::{Itertools, assert_equal};
-    use crate::EventReader::EventReader;
-
-    //#[derive(Clone, Eq, PartialEq, Hash)]
-    struct Data<F: FnMut()>{
-        id : usize,
-        name: String,
-        on_destroy: F
-    }
-
-    impl<F: FnMut()> Data<F>{
-        fn from(i:usize, on_destroy: F) -> Self {
-            Self{
-                id : i,
-                name: i.to_string(),
-                on_destroy: on_destroy
-            }
-        }
-    }
-
-    impl<F: FnMut()> Drop for Data<F>{
-        fn drop(&mut self) {
-            (self.on_destroy)();
-        }
-    }
-
-    #[test]
-    fn push_drop_test() {
-        let destruct_counter = AtomicUsize::new(0);
-        let destruct_counter_ref = &destruct_counter;
-        let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
-
-
-        let mut reader_option : Option<EventReader<_, 4>> = Option::None;
-        {
-            let chunk_list = Event::<_, 4>::new(Default::default());
-            chunk_list.push(Data::from(0, on_destroy));
-            chunk_list.push(Data::from(1, on_destroy));
-            chunk_list.push(Data::from(2, on_destroy));
-            chunk_list.push(Data::from(3, on_destroy));
-
-            chunk_list.push(Data::from(4, on_destroy));
-
-
-            reader_option = Option::Some(chunk_list.subscribe());
-            let reader = reader_option.as_mut().unwrap();
-            assert_equal(
-                reader.iter().map(|data| &data.id),
-                Vec::<usize>::from([0, 1, 2, 3, 4]).iter()
-            );
-
-            // Only first chunk should be freed
-            assert!(destruct_counter.load(Ordering::Relaxed) == 4);
-        }
-        assert!(destruct_counter.load(Ordering::Relaxed) == 4);
-        reader_option = None;
-        assert!(destruct_counter.load(Ordering::Relaxed) == 5);
-    }
-
-    #[test]
-    fn read_on_full_chunk_test() {
-        let destruct_counter = AtomicUsize::new(0);
-        let destruct_counter_ref = &destruct_counter;
-        let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
-
-        {
-            let chunk_list = Event::<_, 4>::new(Default::default());
-            chunk_list.push(Data::from(0, on_destroy));
-            chunk_list.push(Data::from(1, on_destroy));
-            chunk_list.push(Data::from(2, on_destroy));
-            chunk_list.push(Data::from(3, on_destroy));
-
-            let mut reader = chunk_list.subscribe();
-            assert_equal(
-                reader.iter().map(|data| &data.id),
-                Vec::<usize>::from([0, 1, 2, 3]).iter()
-            );
-            assert!(destruct_counter.load(Ordering::Relaxed) == 0);
-
-            assert_equal(
-                reader.iter().map(|data| &data.id),
-                Vec::<usize>::from([]).iter()
-            );
-            assert!(destruct_counter.load(Ordering::Relaxed) == 0);
-        }
-        assert!(destruct_counter.load(Ordering::Relaxed) == 4);
-    }
-
-    #[test]
-    fn huge_push_test() {
-        let event = Event::<usize, 4>::new(Default::default());
-        for i in 0..100000{
-            event.push(i);
-        }
-
-        let mut reader = event.subscribe();
-
-        for i in reader.iter(){
-        }
-    }
-
 }

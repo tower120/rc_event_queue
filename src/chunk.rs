@@ -11,8 +11,8 @@ use std::ptr;
 use std::cell::UnsafeCell;
 
 pub struct ChunkStorage<T, const CHUNK_SIZE: usize>{
-    storage : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
-    pub(super) storage_len  : AtomicUsize,
+    storage     : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
+    storage_len : AtomicUsize,
 }
 
 unsafe impl<T, const CHUNK_SIZE: usize> Send for ChunkStorage<T, CHUNK_SIZE> {}
@@ -31,6 +31,9 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         &mut *self.storage.get()
     }
 
+    pub fn get_last_index(&self, ordering: Ordering) -> usize{
+        std::cmp::max(0, self.storage_len.load(ordering) as isize - 1) as usize
+    }
 
     // TODO: move to Event::push ?
     #[inline(always)]
@@ -56,16 +59,16 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         self.get_storage().get_unchecked_mut(index).assume_init_mut()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T>{
-        // synchronization through storage_len Acquire
-        let len = self.len();
-        // TODO: benchmark slice vs [0..len].iter(). Maybe custom iterator? or "unchecked slice"?
-        unsafe { self.get_storage()[0..len].iter().map(|i| i.assume_init_ref()) }
-    }
+    // pub fn iter(&self) -> impl Iterator<Item = &T>{
+    //     // synchronization through storage_len Acquire
+    //     let len = self.len();
+    //     // TODO: benchmark slice vs [0..len].iter(). Maybe custom iterator? or "unchecked slice"?
+    //     unsafe { self.get_storage()[0..len].iter().map(|i| i.assume_init_ref()) }
+    // }
 
     #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.storage_len.load(Ordering::Acquire)
+    pub fn len(&self, ordering: Ordering) -> usize {
+        self.storage_len.load(ordering)
     }
 
     #[inline(always)]
@@ -76,7 +79,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
 
 impl<T, const CHUNK_SIZE: usize> Drop for ChunkStorage<T, CHUNK_SIZE> {
     fn drop(&mut self) {
-        let len = self.len();
+        let len = self.len(Ordering::Acquire);
         let storage  = unsafe{ self.get_storage() };
         for i in 0..len {
              unsafe{ ptr::drop_in_place(storage.get_unchecked_mut(i).as_mut_ptr()); }
