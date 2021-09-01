@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use events::event::{Event, EventSettings};
+use events::event::{Event};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
 
@@ -8,7 +8,7 @@ const queue_size : usize = 100000;
 fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = Event::<usize, 512>::new(EventSettings{auto_cleanup: false});
+        let event = Event::<usize, 512, false>::new();
         let mut reader = event.subscribe();
         for i in 0..queue_size{
             event.push(i);
@@ -37,7 +37,7 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
 fn bench_event_reader_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = Event::<usize, 512>::new(EventSettings{auto_cleanup: false});
+        let event = Event::<usize, 512, false>::new();
         let mut reader = event.subscribe();
         for i in 0..queue_size{
             event.push(i);

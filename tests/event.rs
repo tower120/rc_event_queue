@@ -1,4 +1,4 @@
-use events::event::{Event, EventSettings};
+use events::event::{Event};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use itertools::{Itertools, assert_equal};
 use events::EventReader::EventReader;
@@ -33,9 +33,9 @@ fn push_drop_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
 
-    let mut reader_option : Option<EventReader<_, 4>> = Option::None;
+    let mut reader_option : Option<EventReader<_, 4, true>> = Option::None;
     {
-        let chunk_list = Event::<_, 4>::new(Default::default());
+        let chunk_list = Event::<_, 4, true>::new();
         reader_option = Option::Some(chunk_list.subscribe());
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -66,7 +66,7 @@ fn read_on_full_chunk_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
     {
-        let chunk_list = Event::<_, 4>::new(Default::default());
+        let chunk_list = Event::<_, 4, true>::new();
         let mut reader = chunk_list.subscribe();
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -91,7 +91,7 @@ fn read_on_full_chunk_test() {
 
 #[test]
 fn huge_push_test() {
-    let event = Event::<usize, 4>::new(Default::default());
+    let event = Event::<usize, 4, true>::new();
     for i in 0..100000{
         event.push(i);
     }
@@ -105,7 +105,7 @@ fn huge_push_test() {
 
 #[test]
 fn clean_test() {
-    let event = Event::<usize, 4>::new(Default::default());
+    let event = Event::<usize, 4, true>::new();
     let mut reader = event.subscribe();
 
     event.push(0);

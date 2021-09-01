@@ -25,7 +25,7 @@ use crate::cursor;
 use std::io::SeekFrom::Start;
 
 // TODO: hide CHUNK_SIZE
-pub(super) struct Chunk<T, const CHUNK_SIZE : usize>{
+pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
     /// Will overflow after years... So just ignore that possibility.
     pub(super) id      : usize,
@@ -43,15 +43,15 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize>{
     // This needed to access Event from EventReader.
     // Never changes.
     // TODO: reference?
-    pub(super) event : *const Event<T, CHUNK_SIZE>,
+    pub(super) event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
 
     pub(super) storage_len_and_start_point_epoch : AtomicU64
 }
 
-impl<T, const CHUNK_SIZE : usize> Chunk<T, CHUNK_SIZE >
+impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
-    fn new(id: usize, event : *const Event<T, CHUNK_SIZE>) -> Box<Self>{
+    fn new(id: usize, event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
         Box::new(Self{
             id      : id,
             storage : ChunkStorage::new(),
@@ -64,20 +64,24 @@ impl<T, const CHUNK_SIZE : usize> Chunk<T, CHUNK_SIZE >
 }
 
 
-pub struct List<T, const CHUNK_SIZE : usize>{
-    first: *mut Chunk<T, CHUNK_SIZE>,
-    last : *mut Chunk<T, CHUNK_SIZE>,
+pub struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
+    first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_id_counter: usize
 }
 
-pub struct StartPoint<T, const CHUNK_SIZE : usize>{
-    pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE>,
+pub struct StartPoint<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
+    pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     /// in-chunk index
     pub(super) index : usize,
 }
 
-pub struct Event<T, const CHUNK_SIZE : usize>{
-    list  : Mutex<List<T, CHUNK_SIZE>>,     // TODO: fast spin lock here / parking_lot
+/// Defaults:
+///
+/// CHUNK_SIZE = 512
+/// AUTO_CLEANUP = true
+pub struct Event<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
+    list  : Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,     // TODO: fast spin lock here / parking_lot
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
@@ -85,34 +89,19 @@ pub struct Event<T, const CHUNK_SIZE : usize>{
 
     // TODO: start_cursor
     pub(super) start_point_epoch: AtomicUsize,
-    pub(super) start_point : parking_lot::Mutex<StartPoint<T, CHUNK_SIZE>>,
-
-    pub(super) auto_cleanup: bool
-}
-
-pub struct EventSettings{
-    pub auto_cleanup: bool
-}
-
-impl Default for EventSettings{
-    fn default() -> Self {
-        Self{
-            auto_cleanup: true
-        }
-    }
+    pub(super) start_point : parking_lot::Mutex<StartPoint<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 }
 
 // TODO: rename to EventQueue
-impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
+impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
     // TODO: return Pin
-    pub fn new(settings: EventSettings) -> Arc<Self>{
-        let node = Chunk::<T, CHUNK_SIZE >::new(0, null_mut());
+    pub fn new() -> Arc<Self>{
+        let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::new(Self{
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
-            auto_cleanup : settings.auto_cleanup,
 
             start_point_epoch : AtomicUsize::new(0),
             start_point       : parking_lot::Mutex::new(StartPoint{event_chunk: node_ptr, index:0})
@@ -129,7 +118,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
         if /*unlikely*/ node.storage.len(Ordering::Relaxed) == CHUNK_SIZE{
             // make new node
             list.chunk_id_counter += 1;
-            let new_node = Chunk::<T, CHUNK_SIZE >::new(list.chunk_id_counter, self);
+            let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, self);
             let new_node_ptr = Box::into_raw(new_node);
             node.next = AtomicPtr::new(new_node_ptr);
 
@@ -147,7 +136,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
 
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
-    pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE>{
+    pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
         let list = self.list.lock().unwrap();
 
         let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
@@ -173,7 +162,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
     }
 
     // Called from EventReader Drop
-    pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE>){
+    pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>){
         let list = self.list.lock().unwrap();
 
         // -1 read_completely_times for each chunk that reader passed
@@ -243,7 +232,7 @@ impl<T, const CHUNK_SIZE : usize> Event<T, CHUNK_SIZE>
 
 }
 
-impl<T, const CHUNK_SIZE : usize> Drop for Event<T, CHUNK_SIZE>{
+impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
         let list = self.list.lock().unwrap();
         debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
@@ -257,13 +246,13 @@ impl<T, const CHUNK_SIZE : usize> Drop for Event<T, CHUNK_SIZE>{
     }
 }
 
-pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize>
+pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
-    start_chunk_ptr : *const Chunk<T, CHUNK_SIZE>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE>,
+    start_chunk_ptr : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     mut func : F
 )
-    where F: FnMut(&Chunk<T, CHUNK_SIZE>) -> ControlFlow<()>
+    where F: FnMut(&Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
 {
     debug_assert!(!start_chunk_ptr.is_null());
     debug_assert!(!end_chunk_ptr.is_null());
