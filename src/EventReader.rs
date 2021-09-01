@@ -3,7 +3,6 @@
 // Chunk's iteration synchronization occurs around [ChunkStorage::storage_len] acquire/release access
 //
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::ptr::null_mut;
 use crate::event::{Chunk, Event, foreach_chunk};
@@ -26,7 +25,7 @@ pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
     // TODO : u32 both
     pub(super) index : usize,
 
-    pub(super) start_point_epoch : usize,
+    pub(super) start_point_epoch : u32,
 }
 
 
@@ -87,18 +86,8 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         }
     }
 
-    pub fn update_position(&mut self){
-        let event = unsafe { &*(*self.event_chunk).event };
-        let epoch = event.start_point_epoch.load(Ordering::Acquire);
-        if epoch != self.start_point_epoch{
-            self.do_update_start_point(event);
-            self.start_point_epoch = epoch;
-        }
-    }
-
     // TODO: rename to `read` ?
     pub fn iter(&mut self) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
-        self.update_position();
         Iter::new(self)
     }
 }
@@ -122,31 +111,23 @@ pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 }
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
-
-    // #[inline(never)]
-    // fn do_lock(event_reader: &'a mut EventReader<T, CHUNK_SIZE>){
-    //     let event = (unsafe { &*(*event_reader.event_chunk).event });
-    //     let new_start_point = event.start_point.lock();
-    // }
-
     fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
         let chunk = unsafe{&*event_reader.event_chunk};
 
-        let t = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
-        let pair = U32Pair::from_u64(t as u64);
+        let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
+        let pair = U32Pair::from_u64(len_and_epoch);
         let chunk_len = pair.first();
-         // let epoch = pair.second();
-         //  if epoch as usize != event_reader.start_point_epoch{
-         //      Iter::do_lock(event_reader);
-         //  }
-
+        let epoch = pair.second();
+        if epoch != event_reader.start_point_epoch{
+            event_reader.do_update_start_point(unsafe{&*chunk.event});
+            event_reader.start_point_epoch = epoch;
+        }
 
         let index = event_reader.index;
         Self{
             event_reader : event_reader,
             event_chunk  : chunk,
             index : index,
-            //chunk_len : chunk.storage.storage_len.load(Ordering::Acquire)
             chunk_len : chunk_len as usize
         }
     }

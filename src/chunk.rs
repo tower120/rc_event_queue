@@ -3,8 +3,6 @@
 //!
 //! Elements thread-safe mutable access is not guaranteed. Read only is always thread-safe.
 
-// TODO: remove mutable access.
-
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -47,13 +45,11 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         self.storage_len.store(index + 1, Ordering::Release);
     }
 
-    // TODO: remove. Need synchronization.
     #[inline(always)]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T{
         self.get_storage().get_unchecked(index).assume_init_ref()
     }
 
-    // TODO: remove. Need synchronization.
     #[inline(always)]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T{
         self.get_storage().get_unchecked_mut(index).assume_init_mut()
