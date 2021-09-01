@@ -20,12 +20,9 @@ pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
     pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     /// in-chunk index
     ///
-
-
-    // TODO : u32 both
     pub(super) index : usize,
 
-    pub(super) start_point_epoch : u32,
+    pub(super) start_point_epoch : usize,
 }
 
 
@@ -86,6 +83,31 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         }
     }
 
+    fn get_chunk_len_and_update_start_point(&mut self, chunk: &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
+        let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
+        let pair = U32Pair::from_u64(len_and_epoch);
+        let len = pair.first() as usize;
+        let epoch = pair.second() as usize;
+
+        if epoch != self.start_point_epoch{
+            self.do_update_start_point(unsafe{&*(*self.event_chunk).event});
+            self.start_point_epoch = epoch;
+        }
+        len
+    }
+
+    /// Will move cursor to new start_position if necessary.
+    /// Reader may point to already cleared part of queue, this will move it to the new begin, marking
+    /// all chunks between current and new position as read.
+    ///
+    /// You need this only if you cleared/cut queue, and now want to force free memory.
+    /// (When all readers mark chunk as read - it will be deleted)
+    ///
+    pub fn update_position(&mut self) {
+        self.get_chunk_len_and_update_start_point( unsafe{&*self.event_chunk});
+    }
+
+
     // TODO: rename to `read` ?
     pub fn iter(&mut self) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
         Iter::new(self)
@@ -113,22 +135,13 @@ pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
         let chunk = unsafe{&*event_reader.event_chunk};
-
-        let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
-        let pair = U32Pair::from_u64(len_and_epoch);
-        let chunk_len = pair.first();
-        let epoch = pair.second();
-        if epoch != event_reader.start_point_epoch{
-            event_reader.do_update_start_point(unsafe{&*chunk.event});
-            event_reader.start_point_epoch = epoch;
-        }
-
+        let chunk_len = event_reader.get_chunk_len_and_update_start_point(chunk);
         let index = event_reader.index;
         Self{
             event_reader : event_reader,
             event_chunk  : chunk,
             index : index,
-            chunk_len : chunk_len as usize
+            chunk_len : chunk_len
         }
     }
 }

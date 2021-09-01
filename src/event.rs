@@ -65,7 +65,7 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_id_counter: usize,
-    start_point_epoch: u32,
+    start_point_epoch: usize,
 }
 
 // TODO: try replace with Cursor
@@ -130,7 +130,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
         node.storage_len_and_start_point_epoch.store(U32Pair::from_u32(
             node.storage.len(Ordering::Relaxed) as u32,
-            list.start_point_epoch
+            list.start_point_epoch as u32
         ).as_u64(), Ordering::Release);
     }
 
@@ -240,7 +240,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
                     let len_and_epoch = U32Pair::from_u64(chunk.storage_len_and_start_point_epoch.load(Ordering::Relaxed));
                     let len = len_and_epoch.first();
 
-                    let new_len_and_epoch = U32Pair::from_u32(len, list.start_point_epoch);
+                    let new_len_and_epoch = U32Pair::from_u32(len, list.start_point_epoch as u32);
                     chunk.storage_len_and_start_point_epoch.store(new_len_and_epoch.as_u64(), Ordering::Release);
 
                     Continue(())
