@@ -62,6 +62,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
     //     unsafe { self.get_storage()[0..len].iter().map(|i| i.assume_init_ref()) }
     // }
 
+    // TODO: remove
     #[inline(always)]
     pub fn len(&self, ordering: Ordering) -> usize {
         self.storage_len.load(ordering)

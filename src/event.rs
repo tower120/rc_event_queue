@@ -43,6 +43,7 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     pub(super) event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
 
+    /// Same across all chunks. Updated in [Event::clean]
     pub(super) storage_len_and_start_point_epoch : AtomicU64
 }
 
@@ -187,6 +188,8 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
     }
 
     // TODO: rename to shrink_to_fit
+    /// Free all completely read chunks.
+    /// Called automatically with AUTO_CLEANUP = true.
     pub(super) fn free_read_chunks(&self){
         let mut list = self.list.lock().unwrap();
 

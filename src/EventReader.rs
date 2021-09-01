@@ -169,7 +169,10 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
             self.event_chunk = chunk;
 
             self.index = 0;
-            self.chunk_len = chunk.storage.len(Ordering::Acquire);
+            self.chunk_len = {
+                let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
+                U32Pair::from_u64(len_and_epoch).first() as usize
+            };
             if self.chunk_len == 0 {
                 return None;
             }
