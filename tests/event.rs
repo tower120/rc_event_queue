@@ -1,7 +1,10 @@
 use events::event::{Event};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
 use itertools::{Itertools, assert_equal};
 use events::EventReader::EventReader;
+use std::thread;
+use std::borrow::BorrowMut;
+use std::sync::Arc;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
@@ -98,8 +101,7 @@ fn huge_push_test() {
 
     let mut reader = event.subscribe();
 
-    for i in reader.iter(){
-    }
+    for _ in reader.iter(){}
 }
 
 
@@ -122,4 +124,99 @@ fn clean_test() {
         reader.iter(),
         Vec::<usize>::from([4, 5]).iter()
     );
+}
+
+#[test]
+fn mt_read_test() {
+for _ in 0..10{
+    let threads_count = 40;
+    let event = Event::<usize, 512, true>::new();
+
+    let mut readers = Vec::new();
+    for _ in 0..threads_count{
+        readers.push(event.subscribe());
+    }
+
+    let mut sum = 0;
+    for i in 0..1000000{
+        event.push(i);
+        sum += i;
+    }
+
+    // read
+    let mut threads = Vec::new();
+    for mut reader in readers{
+        let thread = Box::new(thread::spawn(move || {
+            // some work here
+            let local_sum: usize = reader.iter().sum();
+            assert!(local_sum == sum);
+        }));
+        threads.push(thread);
+    }
+
+    for thread in threads{
+        thread.join().unwrap();
+    }
+}
+}
+
+#[test]
+fn mt_write_read_test() {
+for _ in 0..10{
+    let writer_chunk = 10000;
+    let writers_thread_count = 2;
+    let readers_thread_count = 4;
+    let event = Event::<usize, 512, true>::new();
+
+    let mut readers = Vec::new();
+    for _ in 0..readers_thread_count{
+        readers.push(event.subscribe());
+    }
+
+    // write
+    let mut writer_threads = Vec::new();
+    for thread_id in 0..writers_thread_count{
+        let event = event.clone();
+        let thread = Box::new(thread::spawn(move || {
+            let from = thread_id*writer_chunk;
+            let to = from+writer_chunk;
+
+            for i  in from..to{
+                event.push(i);
+            }
+        }));
+        writer_threads.push(thread);
+    }
+
+    let sum: usize = (0..writers_thread_count*writer_chunk).sum();
+
+    // read
+    let readers_stop = Arc::new(AtomicBool::new(false));
+    let mut reader_threads = Vec::new();
+    for mut reader in readers{
+        let readers_stop = readers_stop.clone();
+        let thread = Box::new(thread::spawn(move || {
+            let mut local_sum: usize = 0;
+            // do-while ensures that reader will try another round after stop,
+            // to consume leftovers. Since iter end/sentinel acquired at construction.
+            loop{
+                let stop = readers_stop.load(Ordering::Acquire);
+
+                local_sum += reader.iter().sum::<usize>();
+
+                if stop{ break; }
+            }
+            assert_eq!(local_sum, sum);
+        }));
+        reader_threads.push(thread);
+    }
+
+    for thread in writer_threads {
+        thread.join().unwrap();
+    }
+    readers_stop.store(true, Ordering::Release);
+    for thread in reader_threads {
+        thread.join().unwrap();
+    }
+}
 }

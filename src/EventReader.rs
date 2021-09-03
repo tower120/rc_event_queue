@@ -25,6 +25,9 @@ pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
     pub(super) start_point_epoch : usize,
 }
 
+// TODO: Use Cursor and remove this
+unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
@@ -56,6 +59,10 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         // Cleanup (optional)
         if try_cleanup{
             let event = unsafe {&*(*self.event_chunk).event};
+
+            // TEST!!!
+            //event.free_read_chunks();
+
             // Only if current chunk fully read, next chunks can be fully read to.
             // So, as fast check look for active chunk only
             let readers_count = event.readers.load(Ordering::Relaxed);
@@ -73,6 +80,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         self.index = new_index;
     }
 
+    // TODO: test #[cold] too
     // Have much better performance being non-inline. Occurs rarely.
     #[inline(never)]
     fn do_update_start_point(&mut self, event: &Event<T, CHUNK_SIZE, AUTO_CLEANUP>){
@@ -96,6 +104,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         len
     }
 
+
     /// Will move cursor to new start_position if necessary.
     /// Reader may point to already cleared part of queue, this will move it to the new begin, marking
     /// all chunks between current and new position as read.
@@ -103,6 +112,8 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     /// You need this only if you cleared/cut queue, and now want to force free memory.
     /// (When all readers mark chunk as read - it will be deleted)
     ///
+    // This is basically the same as just calling `iter()` and drop it.
+    // Do we actually need this as separate fn? Benchmark.
     pub fn update_position(&mut self) {
         self.get_chunk_len_and_update_start_point( unsafe{&*self.event_chunk});
     }
