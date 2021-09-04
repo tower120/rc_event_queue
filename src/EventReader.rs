@@ -23,10 +23,10 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
 {
     pub(super) fn set_forward_position(
         &mut self,
-        new_position: &Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,     // TODO: Try by value with Copy
+        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,     // TODO: Try by value with Copy
         try_cleanup : bool)
     {
-        debug_assert!(*new_position >= self.position);
+        debug_assert!(new_position >= self.position);
 
         // 1. Mark passed chunks as read
         unsafe {
@@ -58,7 +58,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         }
 
         // 2. Update EventReader chunk+index
-        self.position = new_position.clone();
+        self.position = new_position;
     }
 
     // TODO: test #[cold] too
@@ -68,7 +68,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         let event = unsafe{&*(*self.position.chunk).event};
         let new_start_point = event.start_point.lock().clone();
         if self.position < new_start_point{
-            self.set_forward_position(&new_start_point, AUTO_CLEANUP);
+            self.set_forward_position(new_start_point, AUTO_CLEANUP);
         }
     }
 
@@ -183,6 +183,6 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(&Cursor{chunk: self.event_chunk, index: self.index}, AUTO_CLEANUP);
+        self.event_reader.set_forward_position(Cursor{chunk: self.event_chunk, index: self.index}, AUTO_CLEANUP);
     }
 }

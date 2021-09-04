@@ -11,7 +11,7 @@ pub(super) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
     pub index : usize
 }
 
-
+impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Copy for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {}
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Clone for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
     fn clone(&self) -> Self {
         Self{ chunk: self.chunk, index: self.index }

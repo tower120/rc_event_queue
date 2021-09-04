@@ -153,7 +153,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
         event_reader.set_forward_position(
-            &Cursor{
+            Cursor{
                 chunk: list.last,
                 index: unsafe{ (*list.last).storage.get_last_index(Ordering::Relaxed) }
             },
