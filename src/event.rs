@@ -23,16 +23,13 @@ use crate::utils::U32Pair;
 use crate::cursor;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
+use crate::cursor::Cursor;
 
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
     /// Will overflow after years... So just ignore that possibility.
     pub(super) id      : usize,
-    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,       // TODO: put last
     pub(super) next    : AtomicPtr<Self>,
-
-    // -----------------------------------------
-    // payload
 
     /// When == readers count, it is safe to delete this chunk.
     /// Chunk read completely if reader consumed CHUNK_SIZE'ed element.
@@ -41,12 +38,13 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 
     // This needed to access Event from EventReader.
     // Never changes.
-    // TODO: reference?
     pub(super) event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
-
     /// Same across all chunks. Updated in [Event::clean]
-    pub(super) storage_len_and_start_point_epoch : AtomicU64
+    pub(super) storage_len_and_start_point_epoch : AtomicU64,
+
+    // Keep last
+    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
 }
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
@@ -71,13 +69,6 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     start_point_epoch: usize,
 }
 
-// TODO: try replace with Cursor
-pub struct StartPoint<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
-    pub(super) event_chunk : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    /// in-chunk index
-    pub(super) index : usize,
-}
-
 /// Defaults:
 ///
 /// CHUNK_SIZE = 512
@@ -92,7 +83,7 @@ pub struct Event<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     // TODO: start_cursor
     /// Separate lock from list::start_point_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(super) start_point : parking_lot::Mutex<StartPoint<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(super) start_point : parking_lot::Mutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 }
 
 // !Unpin 5% faster then PhantomPinned
@@ -111,7 +102,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0, start_point_epoch: 0}),
             readers : AtomicUsize::new(0),
 
-            start_point       : parking_lot::Mutex::new(StartPoint{event_chunk: node_ptr, index:0}),
+            start_point       : parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
         });
         unsafe {(*node_ptr).event = &*this};
         this
@@ -154,8 +145,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
         }
 
         let mut event_reader = EventReader{
-            event_chunk : list.first,
-            index : 0,
+            position: Cursor{chunk: list.first, index: 0},
             start_point_epoch : list.start_point_epoch
         };
 
@@ -163,8 +153,10 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
         event_reader.set_forward_position(
-            list.last,
-            unsafe{ (*list.last).storage.get_last_index(Ordering::Relaxed) },
+            &Cursor{
+                chunk: list.last,
+                index: unsafe{ (*list.last).storage.get_last_index(Ordering::Relaxed) }
+            },
             false);
         event_reader
     }
@@ -177,7 +169,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
         unsafe {
             foreach_chunk(
                 list.first,
-                event_reader.event_chunk,
+                event_reader.position.chunk,
                 |chunk| {
                     debug_assert!(chunk.storage.len(Ordering::Acquire) == chunk.storage.capacity());
                     chunk.read_completely_times.fetch_sub(1, Ordering::AcqRel);
@@ -234,7 +226,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
             let mut start_point = self.start_point.lock();
 
-            start_point.event_chunk = chunk;
+            start_point.chunk = chunk;
             start_point.index = index;
         }
 

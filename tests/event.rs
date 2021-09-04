@@ -166,7 +166,7 @@ for _ in 0..10{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    let event = Event::<usize, 512, true>::new();
+    let event = Event::<usize, 32, true>::new();
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{
@@ -198,7 +198,7 @@ for _ in 0..10{
         let thread = Box::new(thread::spawn(move || {
             let mut local_sum: usize = 0;
             // do-while ensures that reader will try another round after stop,
-            // to consume leftovers. Since iter end/sentinel acquired at construction.
+            // to consume leftovers. Since iter's end/sentinel acquired at iter construction.
             loop{
                 let stop = readers_stop.load(Ordering::Acquire);
 

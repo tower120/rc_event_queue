@@ -2,13 +2,20 @@ use crate::event::Chunk;
 use std::cmp::Ordering;
 
 // TODO: Untested comparison!!
-// TODO: Try use everywhere
 pub(super) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 {
+    // TODO: try hide
     /// Always valid
     pub chunk: *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     /// in-chunk index
     pub index : usize
+}
+
+
+impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Clone for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+    fn clone(&self) -> Self {
+        Self{ chunk: self.chunk, index: self.index }
+    }
 }
 
 
@@ -33,6 +40,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialOrd for Cursor
         Some(self.cmp(other))
     }
 
+    // TODO: Is this needed? Benchmark with/without specialized lt comparison
     fn lt(&self, other: &Self) -> bool {
         let self_chunk_id  = self.chunk_ref().id;
         let other_chunk_id = other.chunk_ref().id;
