@@ -118,26 +118,19 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventReader<
 pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
     where EventReader<T, CHUNK_SIZE, AUTO_CLEANUP> : 'a
 {
-    // TODO: put last
+    position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    chunk_len : usize,
     event_reader : &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>,
-
-    // TODO: try Cursor?
-    event_chunk  : &'a Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    index : usize,
-
-    chunk_len : usize
 }
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
         let chunk = unsafe{&*event_reader.position.chunk};
         let chunk_len = event_reader.get_chunk_len_and_update_start_point(chunk);
-        let index = event_reader.position.index;
         Self{
+            position: event_reader.position,
+            chunk_len : chunk_len,
             event_reader : event_reader,
-            event_chunk  : chunk,
-            index : index,
-            chunk_len : chunk_len
         }
     }
 }
@@ -146,14 +139,14 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut chunk = self.event_chunk;
-
-        if /*unlikely*/ self.chunk_len == self.index {
+        if /*unlikely*/ self.position.index == self.chunk_len {
             // should try next chunk?
-            if self.index != CHUNK_SIZE{
+            if self.position.index != CHUNK_SIZE{
                 return None;
             }
 
+            let mut chunk = unsafe{&*self.position.chunk};
+            
             // have next chunk?
             let next_chunk = chunk.next.load(Ordering::Acquire);
             if next_chunk == null_mut(){
@@ -162,20 +155,25 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
             // switch chunk
             chunk = unsafe{&*next_chunk};
-            self.event_chunk = chunk;
 
-            self.index = 0;
+            self.position.chunk = chunk;
+            self.position.index = 0;
+
             self.chunk_len = {
                 let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
                 U32Pair::from_u64(len_and_epoch).first() as usize
             };
+
+            // Maybe 0 when new chunk is created, but item still not pushed.
+            // It is faster to have rare additional check here, then in `push`
             if self.chunk_len == 0 {
                 return None;
             }
         }
 
-        let value = unsafe { chunk.storage.get_unchecked(self.index) };
-        self.index += 1;
+        let chunk = unsafe{&*self.position.chunk};
+        let value = unsafe { chunk.storage.get_unchecked(self.position.index) };
+        self.position.index += 1;
 
         Some(value)
     }
@@ -183,6 +181,6 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(Cursor{chunk: self.event_chunk, index: self.index}, AUTO_CLEANUP);
+        self.event_reader.set_forward_position(self.position, AUTO_CLEANUP);
     }
 }
