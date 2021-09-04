@@ -1,3 +1,5 @@
+#![feature(negative_impls)]
+
 mod chunk;
 mod utils;
 mod cursor;

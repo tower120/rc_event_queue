@@ -93,10 +93,10 @@ pub struct Event<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     /// Separate lock from list::start_point_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
     pub(super) start_point : parking_lot::Mutex<StartPoint<T, CHUNK_SIZE, AUTO_CLEANUP>>,
-
-    _pinned: PhantomPinned
 }
 
+// !Unpin 5% faster then PhantomPinned
+impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> !Unpin for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 
@@ -112,8 +112,6 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
             readers : AtomicUsize::new(0),
 
             start_point       : parking_lot::Mutex::new(StartPoint{event_chunk: node_ptr, index:0}),
-
-            _pinned: PhantomPinned
         });
         unsafe {(*node_ptr).event = &*this};
         this
@@ -204,7 +202,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
-            foreach_chunk_mut(
+            foreach_chunk(
                 list.first,
                 list.last,
                 |chunk| {
@@ -216,7 +214,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
-                    Box::from_raw(chunk);  // drop
+                    Box::from_raw(list.first);  // drop
                     list.first = next_chunk_ptr;
 
                     Continue(())
@@ -288,22 +286,6 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
 )
     where F: FnMut(&Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
 {
-    foreach_chunk_mut(
-        start_chunk_ptr as *mut _,
-        end_chunk_ptr,
-        |mut_chunk| func(mut_chunk)
-    );
-}
-
-/// end_chunk_ptr may be null
-pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
-(
-    start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    mut func : F
-)
-    where F: FnMut(&mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
-{
     debug_assert!(!start_chunk_ptr.is_null());
     debug_assert!(
         end_chunk_ptr.is_null()
@@ -312,11 +294,11 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUT
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){
-        if chunk_ptr as *const _ == end_chunk_ptr {
+        if chunk_ptr == end_chunk_ptr {
             break;
         }
 
-        let chunk = &mut *chunk_ptr;
+        let chunk = &*chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
         let next_chunk_ptr = chunk.next.load(Ordering::Acquire);
 
