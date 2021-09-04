@@ -5,7 +5,7 @@
 
 use std::sync::atomic::Ordering;
 use std::ptr::null_mut;
-use crate::event::{Chunk, Event, foreach_chunk};
+use crate::event::{Chunk, EventQueue, foreach_chunk};
 use std::ptr;
 use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
@@ -14,7 +14,7 @@ use crate::cursor::Cursor;
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
     pub(super) position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    pub(super) start_point_epoch : usize,
+    pub(super) start_position_epoch: usize,
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{}
@@ -23,7 +23,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
 {
     pub(super) fn set_forward_position(
         &mut self,
-        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,     // TODO: Try by value with Copy
+        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
         try_cleanup : bool)
     {
         debug_assert!(new_position >= self.position);
@@ -53,7 +53,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
             // This is fast, opportunistic Relaxed - based check without mutex lock.
             // Should happen rarely. True check inside.
             if chunk_read_times>=readers_count{
-                event.free_read_chunks();
+                event.cleanup();
             }
         }
 
@@ -61,26 +61,26 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         self.position = new_position;
     }
 
-    // TODO: test #[cold] too
     // Have much better performance being non-inline. Occurs rarely.
     #[inline(never)]
-    fn do_update_start_point(&mut self){
+    #[cold]
+    fn do_update_start_position(&mut self){
         let event = unsafe{&*(*self.position.chunk).event};
-        let new_start_point = event.start_point.lock().clone();
-        if self.position < new_start_point{
-            self.set_forward_position(new_start_point, AUTO_CLEANUP);
+        let new_start_position = event.start_position.lock().clone();
+        if self.position < new_start_position {
+            self.set_forward_position(new_start_position, AUTO_CLEANUP);
         }
     }
 
-    fn get_chunk_len_and_update_start_point(&mut self, chunk: &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
-        let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
+    fn get_chunk_len_and_update_start_position(&mut self, chunk: &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
+        let len_and_epoch = chunk.len_and_start_position_epoch.load(Ordering::Acquire);
         let pair = U32Pair::from_u64(len_and_epoch);
         let len = pair.first() as usize;
         let epoch = pair.second() as usize;
 
-        if epoch != self.start_point_epoch{
-            self.do_update_start_point();
-            self.start_point_epoch = epoch;
+        if epoch != self.start_position_epoch {
+            self.do_update_start_position();
+            self.start_position_epoch = epoch;
         }
         len
     }
@@ -96,7 +96,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     // This is basically the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
     pub fn update_position(&mut self) {
-        self.get_chunk_len_and_update_start_point( unsafe{&*self.position.chunk});
+        self.get_chunk_len_and_update_start_position( unsafe{&*self.position.chunk});
     }
 
 
@@ -126,7 +126,7 @@ pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
         let chunk = unsafe{&*event_reader.position.chunk};
-        let chunk_len = event_reader.get_chunk_len_and_update_start_point(chunk);
+        let chunk_len = event_reader.get_chunk_len_and_update_start_position(chunk);
         Self{
             position: event_reader.position,
             chunk_len : chunk_len,
@@ -146,7 +146,7 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
             }
 
             let mut chunk = unsafe{&*self.position.chunk};
-            
+
             // have next chunk?
             let next_chunk = chunk.next.load(Ordering::Acquire);
             if next_chunk == null_mut(){
@@ -160,7 +160,7 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
             self.position.index = 0;
 
             self.chunk_len = {
-                let len_and_epoch = chunk.storage_len_and_start_point_epoch.load(Ordering::Acquire);
+                let len_and_epoch = chunk.len_and_start_position_epoch.load(Ordering::Acquire);
                 U32Pair::from_u64(len_and_epoch).first() as usize
             };
 

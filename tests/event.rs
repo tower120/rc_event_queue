@@ -1,4 +1,4 @@
-use events::event::{Event};
+use events::event::{EventQueue};
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
 use itertools::{Itertools, assert_equal};
 use events::EventReader::EventReader;
@@ -38,7 +38,7 @@ fn push_drop_test() {
 
     let mut reader_option : Option<EventReader<_, 4, true>> = Option::None;
     {
-        let chunk_list = Event::<_, 4, true>::new();
+        let chunk_list = EventQueue::<_, 4, true>::new();
         reader_option = Option::Some(chunk_list.subscribe());
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -69,7 +69,7 @@ fn read_on_full_chunk_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
     {
-        let chunk_list = Event::<_, 4, true>::new();
+        let chunk_list = EventQueue::<_, 4, true>::new();
         let mut reader = chunk_list.subscribe();
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -94,7 +94,7 @@ fn read_on_full_chunk_test() {
 
 #[test]
 fn huge_push_test() {
-    let event = Event::<usize, 4, true>::new();
+    let event = EventQueue::<usize, 4, true>::new();
     for i in 0..100000{
         event.push(i);
     }
@@ -107,7 +107,7 @@ fn huge_push_test() {
 
 #[test]
 fn clean_test() {
-    let event = Event::<usize, 4, true>::new();
+    let event = EventQueue::<usize, 4, true>::new();
     let mut reader = event.subscribe();
 
     event.push(0);
@@ -130,7 +130,7 @@ fn clean_test() {
 fn mt_read_test() {
 for _ in 0..10{
     let threads_count = 40;
-    let event = Event::<usize, 512, true>::new();
+    let event = EventQueue::<usize, 512, true>::new();
 
     let mut readers = Vec::new();
     for _ in 0..threads_count{
@@ -166,7 +166,7 @@ for _ in 0..10{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    let event = Event::<usize, 32, true>::new();
+    let event = EventQueue::<usize, 32, true>::new();
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{

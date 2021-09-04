@@ -38,10 +38,10 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 
     // This needed to access Event from EventReader.
     // Never changes.
-    pub(super) event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
-    /// Same across all chunks. Updated in [Event::clean]
-    pub(super) storage_len_and_start_point_epoch : AtomicU64,
+    /// Same across all chunks. Updated in [Event::clear]
+    pub(super) len_and_start_position_epoch: AtomicU64,
 
     // Keep last
     pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
@@ -49,14 +49,14 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
-    fn new(id: usize, event : *const Event<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
+    fn new(id: usize, event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
         Box::new(Self{
             id      : id,
             storage : ChunkStorage::new(),
             next    : AtomicPtr::new(null_mut()),
             read_completely_times : AtomicUsize::new(0),
             event : event,
-            storage_len_and_start_point_epoch : AtomicU64::new(0)
+            len_and_start_position_epoch: AtomicU64::new(0)
         })
     }
 }
@@ -66,43 +66,41 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_id_counter: usize,
-    start_point_epoch: usize,
+    start_position_epoch: usize,
 }
 
 /// Defaults:
 ///
 /// CHUNK_SIZE = 512
 /// AUTO_CLEANUP = true
-pub struct Event<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
+pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     list  : Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,     // TODO: fast spin lock here / parking_lot
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
     pub(super) readers: AtomicUsize,
 
-    // TODO: start_cursor
-    /// Separate lock from list::start_point_epoch, is safe, because start_point_epoch encoded in
+    /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(super) start_point : parking_lot::Mutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(super) start_position: parking_lot::Mutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 }
 
 // !Unpin 5% faster then PhantomPinned
-impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> !Unpin for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
-unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
-unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> !Unpin for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 
 
-// TODO: rename to EventQueue
-impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE, AUTO_CLEANUP>
+impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
     pub fn new() -> Pin<Arc<Self>>{
         let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0, start_point_epoch: 0}),
+            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0, start_position_epoch: 0}),
             readers : AtomicUsize::new(0),
 
-            start_point       : parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
+            start_position: parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
         });
         unsafe {(*node_ptr).event = &*this};
         this
@@ -127,9 +125,9 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
         // TODO: rework
         unsafe{node.storage.push_unchecked(value)};
 
-        node.storage_len_and_start_point_epoch.store(U32Pair::from_u32(
+        node.len_and_start_position_epoch.store(U32Pair::from_u32(
             node.storage.len(Ordering::Relaxed) as u32,
-            list.start_point_epoch as u32
+            list.start_position_epoch as u32
         ).as_u64(), Ordering::Release);
     }
 
@@ -146,7 +144,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
         let mut event_reader = EventReader{
             position: Cursor{chunk: list.first, index: 0},
-            start_point_epoch : list.start_point_epoch
+            start_position_epoch: list.start_position_epoch
         };
 
         // TODO: ?? storage.get_last_index, then release list lock. try_cleanup = auto_cleanup
@@ -186,10 +184,9 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
         }
     }
 
-    // TODO: rename to shrink_to_fit
     /// Free all completely read chunks.
     /// Called automatically with AUTO_CLEANUP = true.
-    pub fn free_read_chunks(&self){
+    pub fn cleanup(&self){
         let mut list = self.list.lock().unwrap();
 
         let readers_count = self.readers.load(Ordering::Relaxed);
@@ -218,29 +215,29 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
     pub fn clear(&self){
         let mut list = self.list.lock().unwrap();
 
-        list.start_point_epoch += 1;
+        list.start_position_epoch += 1;
 
         {
             let chunk = unsafe{ &*list.last };
             let index = chunk.storage.len(Ordering::Relaxed);
 
-            let mut start_point = self.start_point.lock();
+            let mut start_position = self.start_position.lock();
 
-            start_point.chunk = chunk;
-            start_point.index = index;
+            start_position.chunk = chunk;
+            start_position.index = index;
         }
 
-        // update storage_len_and_start_point_epoch in each chunk
+        // update len_and_start_position_epoch in each chunk
         unsafe {
             foreach_chunk(
                 list.first,
                 null(),
                 |chunk| {
-                    let len_and_epoch = U32Pair::from_u64(chunk.storage_len_and_start_point_epoch.load(Ordering::Relaxed));
+                    let len_and_epoch = U32Pair::from_u64(chunk.len_and_start_position_epoch.load(Ordering::Relaxed));
                     let len = len_and_epoch.first();
 
-                    let new_len_and_epoch = U32Pair::from_u32(len, list.start_point_epoch as u32);
-                    chunk.storage_len_and_start_point_epoch.store(new_len_and_epoch.as_u64(), Ordering::Release);
+                    let new_len_and_epoch = U32Pair::from_u32(len, list.start_position_epoch as u32);
+                    chunk.len_and_start_position_epoch.store(new_len_and_epoch.as_u64(), Ordering::Release);
 
                     Continue(())
                 }
@@ -255,7 +252,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Event<T, CHUNK_SIZE,
 
 }
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Event<T, CHUNK_SIZE, AUTO_CLEANUP>{
+impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
         let list = self.list.lock().unwrap();
         debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
