@@ -166,12 +166,18 @@ for _ in 0..10{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    let event = EventQueue::<usize, 32, true>::new();
+    let event = EventQueue::<[usize;4], 32, false>::new();
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{
         readers.push(event.subscribe());
     }
+
+    // etalon
+    let sum0: usize = (0..writers_thread_count*writer_chunk).map(|i|i+0).sum();
+    let sum1: usize = (0..writers_thread_count*writer_chunk).map(|i|i+1).sum();
+    let sum2: usize = (0..writers_thread_count*writer_chunk).map(|i|i+2).sum();
+    let sum3: usize = (0..writers_thread_count*writer_chunk).map(|i|i+3).sum();
 
     // write
     let mut writer_threads = Vec::new();
@@ -182,13 +188,11 @@ for _ in 0..10{
             let to = from+writer_chunk;
 
             for i  in from..to{
-                event.push(i);
+                event.push([i, i+1, i+2, i+3]);
             }
         }));
         writer_threads.push(thread);
     }
-
-    let sum: usize = (0..writers_thread_count*writer_chunk).sum();
 
     // read
     let readers_stop = Arc::new(AtomicBool::new(false));
@@ -196,17 +200,30 @@ for _ in 0..10{
     for mut reader in readers{
         let readers_stop = readers_stop.clone();
         let thread = Box::new(thread::spawn(move || {
-            let mut local_sum: usize = 0;
+            let mut local_sum0: usize = 0;
+            let mut local_sum1: usize = 0;
+            let mut local_sum2: usize = 0;
+            let mut local_sum3: usize = 0;
+
             // do-while ensures that reader will try another round after stop,
             // to consume leftovers. Since iter's end/sentinel acquired at iter construction.
             loop{
                 let stop = readers_stop.load(Ordering::Acquire);
 
-                local_sum += reader.iter().sum::<usize>();
+                for [i0, i1,  i2, i3] in reader.iter(){
+                    local_sum0 += i0;
+                    local_sum1 += i1;
+                    local_sum2 += i2;
+                    local_sum3 += i3;
+                }
 
                 if stop{ break; }
             }
-            assert_eq!(local_sum, sum);
+
+            assert_eq!(local_sum0, sum0);
+            assert_eq!(local_sum1, sum1);
+            assert_eq!(local_sum2, sum2);
+            assert_eq!(local_sum3, sum3);
         }));
         reader_threads.push(thread);
     }

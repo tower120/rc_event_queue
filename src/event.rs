@@ -249,7 +249,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     // TODO: len in chunks
     // TODO: truncate
     // TODO: push_array / push_session
-
+    // TODO: reuse chunks (double/triple buffering)
 }
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
