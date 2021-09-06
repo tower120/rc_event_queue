@@ -1,27 +1,45 @@
 //! thread_safe_grow_only_arrayvec
-//! Lock-free
+//! Lock-free read
 //!
 //! Elements thread-safe mutable access is not guaranteed. Read only is always thread-safe.
 
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
+use std::sync::atomic::{Ordering, AtomicU64};
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::cell::UnsafeCell;
+use crate::len_and_epoch::LenAndEpoch;
+
+/// Error, indicating insufficient capacity
+pub struct CapacityError<V>{
+    pub value: V,
+}
 
 pub struct ChunkStorage<T, const CHUNK_SIZE: usize>{
     storage     : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
-    storage_len : AtomicUsize,
+
+    /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [Event::clear]
+    /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
+    /// touching EventQueue and without additional atomic load(acquire)
+    len_and_start_position_epoch: AtomicU64,
 }
 
 unsafe impl<T, const CHUNK_SIZE: usize> Send for ChunkStorage<T, CHUNK_SIZE> {}
 unsafe impl<T, const CHUNK_SIZE: usize> Sync for ChunkStorage<T, CHUNK_SIZE> {}
 
 impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
-    pub fn new() -> Self {
+    pub fn new(epoch: u32) -> Self {
         Self{
             storage : unsafe { MaybeUninit::uninit().assume_init() },
-            storage_len: AtomicUsize::new(0),
+            len_and_start_position_epoch: AtomicU64::new(LenAndEpoch::new(0, epoch).into())
         }
+    }
+
+    pub fn set_epoch(&self, epoch: u32, load_ordering: Ordering, store_ordering: Ordering){
+        let len = self.len_and_epoch(load_ordering).len();
+        self.len_and_start_position_epoch.store(
+            LenAndEpoch::new(len, epoch).into(),
+            store_ordering
+        );
     }
 
     #[inline(always)]
@@ -29,21 +47,48 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         &mut *self.storage.get()
     }
 
-    pub fn get_last_index(&self, ordering: Ordering) -> usize{
-        std::cmp::max(0, self.storage_len.load(ordering) as isize - 1) as usize
-    }
-
-    // TODO: move to Event::push ?
+    /// Needs additional synchronization. Several threads writing simultaneously may finish writes
+    /// not in order, but len increases sequentially. This may cause items before len index being not fully written.
     #[inline(always)]
-    pub unsafe fn push_unchecked(&self, value: T){
-        // Relaxed, because mutate only under lock
-        let index = self.storage_len.load(Ordering::Relaxed);
-        debug_assert!(index < CHUNK_SIZE);
+    pub unsafe fn try_push(&self, value: T, load_ordering: Ordering, store_ordering: Ordering) -> Result<(), CapacityError<T>>{
+        let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(load_ordering).into();
+        let index = len_and_epoch.len();
+        let epoch = len_and_epoch.epoch();
+        if (index as usize) < CHUNK_SIZE{
+            return Result::Err(CapacityError{value});
+        }
 
-        *self.get_storage().get_unchecked_mut(index) = MaybeUninit::new(value);
+        self.push_at(value, index, epoch, store_ordering);
 
-        self.storage_len.store(index + 1, Ordering::Release);
+        return Result::Ok(());
     }
+
+    #[inline(always)]
+    pub(super) unsafe fn push_at(&self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
+        debug_assert!((index as usize) < CHUNK_SIZE);
+
+        *self.get_storage().get_unchecked_mut(index as usize) = MaybeUninit::new(value);
+
+        self.len_and_start_position_epoch.store(
+            LenAndEpoch::new(index+1, epoch).into(),
+            store_ordering
+        );
+    }
+
+    // #[inline(always)]
+    // pub unsafe fn push_unchecked(&self, value: T, load_ordering: Ordering, store_ordering: Ordering){
+    //     let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(load_ordering).into();
+    //     let index = len_and_epoch.len();
+    //     let epoch = len_and_epoch.epoch();
+    //     debug_assert!((index as usize) < CHUNK_SIZE);
+    //
+    //     *self.get_storage().get_unchecked_mut(index) = MaybeUninit::new(value);
+    //
+    //     self.len_and_start_position_epoch.store(
+    //         LenAndEpoch::new(index+1, epoch).into(),
+    //         store_ordering
+    //     );
+    // }
 
     #[inline(always)]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T{
@@ -55,16 +100,9 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         self.get_storage().get_unchecked_mut(index).assume_init_mut()
     }
 
-    // pub fn iter(&self) -> impl Iterator<Item = &T>{
-    //     // synchronization through storage_len Acquire
-    //     let len = self.len();
-    //     // TODO: benchmark slice vs [0..len].iter(). Maybe custom iterator? or "unchecked slice"?
-    //     unsafe { self.get_storage()[0..len].iter().map(|i| i.assume_init_ref()) }
-    // }
-
     #[inline(always)]
-    pub fn len(&self, ordering: Ordering) -> usize {
-        self.storage_len.load(ordering)
+    pub fn len_and_epoch(&self, ordering: Ordering) -> LenAndEpoch {
+        self.len_and_start_position_epoch.load(ordering).into()
     }
 
     #[inline(always)]
@@ -75,7 +113,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
 
 impl<T, const CHUNK_SIZE: usize> Drop for ChunkStorage<T, CHUNK_SIZE> {
     fn drop(&mut self) {
-        let len = self.len(Ordering::Acquire);
+        let len = self.len_and_epoch(Ordering::Acquire).len() as usize;
         let storage  = unsafe{ self.get_storage() };
         for i in 0..len {
              unsafe{ ptr::drop_in_place(storage.get_unchecked_mut(i).as_mut_ptr()); }

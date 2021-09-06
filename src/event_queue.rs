@@ -12,10 +12,10 @@
 //!
 
 use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
-use crate::chunk::ChunkStorage;
+use crate::chunk::{ChunkStorage, CapacityError};
 use std::sync::{Mutex, MutexGuard, Arc};
 use std::ptr::{null_mut, null};
-use crate::EventReader::EventReader;
+use crate::event_reader::EventReader;
 use std::cell::UnsafeCell;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
@@ -24,6 +24,7 @@ use crate::cursor;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
+use crate::len_and_epoch::LenAndEpoch;
 
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
@@ -41,7 +42,7 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
     /// Same across all chunks. Updated in [Event::clear]
-    pub(super) len_and_start_position_epoch: AtomicU64,
+    //pub(super) len_and_start_position_epoch: AtomicU64,
 
     // Keep last
     pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
@@ -49,14 +50,14 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
-    fn new(id: usize, event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
+    fn new(id: usize, epoch: u32, event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
         Box::new(Self{
-            id      : id,
-            storage : ChunkStorage::new(),
-            next    : AtomicPtr::new(null_mut()),
+            id   : id,
+            next : AtomicPtr::new(null_mut()),
             read_completely_times : AtomicUsize::new(0),
             event : event,
-            len_and_start_position_epoch: AtomicU64::new(0)
+            storage : ChunkStorage::new(epoch),
+            //len_and_start_position_epoch: AtomicU64::new(0)
         })
     }
 }
@@ -66,7 +67,6 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_id_counter: usize,
-    start_position_epoch: usize,
 }
 
 /// Defaults:
@@ -94,10 +94,10 @@ unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Even
 impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
     pub fn new() -> Pin<Arc<Self>>{
-        let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, null_mut());
+        let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0, start_position_epoch: 0}),
+            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0/*, start_position_epoch: 0*/}),
             readers : AtomicUsize::new(0),
 
             start_position: parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
@@ -111,24 +111,24 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let mut node = unsafe{&mut *list.last};
 
         // Relaxed because we update only under lock
-        if /*unlikely*/ node.storage.len(Ordering::Relaxed) == CHUNK_SIZE{
+        let len_and_epoch: LenAndEpoch = node.storage.len_and_epoch(Ordering::Relaxed);
+        let mut storage_len = len_and_epoch.len();
+        let epoch = len_and_epoch.epoch();
+
+        if /*unlikely*/ storage_len as usize == CHUNK_SIZE{
             // make new node
             list.chunk_id_counter += 1;
-            let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, self);
+            let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, epoch, self);
             let new_node_ptr = Box::into_raw(new_node);
             node.next = AtomicPtr::new(new_node_ptr);
 
             list.last = new_node_ptr;
             node = unsafe{&mut *new_node_ptr};
+
+            storage_len = 0;
         }
 
-        // TODO: rework
-        unsafe{node.storage.push_unchecked(value)};
-
-        node.len_and_start_position_epoch.store(U32Pair::from_u32(
-            node.storage.len(Ordering::Relaxed) as u32,
-            list.start_position_epoch as u32
-        ).as_u64(), Ordering::Release);
+        unsafe { node.storage.push_at(value, storage_len, epoch, Ordering::Release); }
     }
 
     /// EventReader will start receive events from NOW.
@@ -142,18 +142,21 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             unsafe { Arc::increment_strong_count(self); }
         }
 
+        let last_chunk = unsafe{&*list.last};
+        let last_chunk_len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
+        let last_chunk_len = last_chunk_len_and_epoch.len();
+        let epoch = last_chunk_len_and_epoch.epoch();
+
         let mut event_reader = EventReader{
             position: Cursor{chunk: list.first, index: 0},
-            start_position_epoch: list.start_position_epoch
+            start_position_epoch: epoch
         };
-
-        // TODO: ?? storage.get_last_index, then release list lock. try_cleanup = auto_cleanup
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
         event_reader.set_forward_position(
             Cursor{
                 chunk: list.last,
-                index: unsafe{ (*list.last).storage.get_last_index(Ordering::Relaxed) }
+                index: last_chunk_len as usize
             },
             false);
         event_reader
@@ -169,7 +172,11 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
                 list.first,
                 event_reader.position.chunk,
                 |chunk| {
-                    debug_assert!(chunk.storage.len(Ordering::Acquire) == chunk.storage.capacity());
+                    debug_assert!(
+                        chunk.storage.len_and_epoch(Ordering::Acquire).len() as usize
+                            ==
+                        chunk.storage.capacity()
+                    );
                     chunk.read_completely_times.fetch_sub(1, Ordering::AcqRel);
                     Continue(())
                 }
@@ -215,30 +222,21 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     pub fn clear(&self){
         let mut list = self.list.lock().unwrap();
 
-        list.start_position_epoch += 1;
-
-        {
-            let chunk = unsafe{ &*list.last };
-            let index = chunk.storage.len(Ordering::Relaxed);
-
-            let mut start_position = self.start_position.lock();
-
-            start_position.chunk = chunk;
-            start_position.index = index;
-        }
+        let last_chunk = unsafe{ &*list.last };
+        let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
+        *self.start_position.lock() = Cursor {
+            chunk: last_chunk,
+            index: len_and_epoch.len() as usize
+        };
 
         // update len_and_start_position_epoch in each chunk
+        let new_epoch = len_and_epoch.epoch() + 1;
         unsafe {
             foreach_chunk(
                 list.first,
                 null(),
                 |chunk| {
-                    let len_and_epoch = U32Pair::from_u64(chunk.len_and_start_position_epoch.load(Ordering::Relaxed));
-                    let len = len_and_epoch.first();
-
-                    let new_len_and_epoch = U32Pair::from_u32(len, list.start_position_epoch as u32);
-                    chunk.len_and_start_position_epoch.store(new_len_and_epoch.as_u64(), Ordering::Release);
-
+                    chunk.storage.set_epoch(new_epoch, Ordering::Relaxed, Ordering::Release);
                     Continue(())
                 }
             );

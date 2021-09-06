@@ -1,4 +1,4 @@
-use crate::event::Chunk;
+use crate::event_queue::Chunk;
 use std::cmp::Ordering;
 
 // TODO: Untested comparison!!
