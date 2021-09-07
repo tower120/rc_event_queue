@@ -25,6 +25,7 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
+use spin::mutex::SpinMutex;
 
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
@@ -74,7 +75,7 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 /// CHUNK_SIZE = 512
 /// AUTO_CLEANUP = true
 pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
-    list  : parking_lot::Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,     // TODO: fast spin lock here
+    list  : parking_lot::Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
@@ -82,7 +83,7 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(super) start_position: parking_lot::Mutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(super) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 }
 
 // !Unpin 5% faster then PhantomPinned
@@ -99,8 +100,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let this = Arc::pin(Self{
             list    : parking_lot::Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0/*, start_position_epoch: 0*/}),
             readers : AtomicUsize::new(0),
-
-            start_position: parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
+            start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
         });
         unsafe {(*node_ptr).event = &*this};
         this
