@@ -50,21 +50,22 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
     /// Needs additional synchronization. Several threads writing simultaneously may finish writes
     /// not in order, but len increases sequentially. This may cause items before len index being not fully written.
     #[inline(always)]
-    pub unsafe fn try_push(&self, value: T, load_ordering: Ordering, store_ordering: Ordering) -> Result<(), CapacityError<T>>{
-        let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(load_ordering).into();
+    pub fn try_push(&mut self, value: T, store_ordering: Ordering) -> Result<(), CapacityError<T>>{
+        // Relaxed because updated only with &mut self
+        let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(Ordering::Relaxed).into();
         let index = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
         if (index as usize) < CHUNK_SIZE{
             return Result::Err(CapacityError{value});
         }
 
-        self.push_at(value, index, epoch, store_ordering);
+        unsafe{ self.push_at(value, index, epoch, store_ordering); }
 
         return Result::Ok(());
     }
 
     #[inline(always)]
-    pub(super) unsafe fn push_at(&self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
+    pub(super) unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
         debug_assert!((index as usize) < CHUNK_SIZE);
 
         *self.get_storage().get_unchecked_mut(index as usize) = MaybeUninit::new(value);

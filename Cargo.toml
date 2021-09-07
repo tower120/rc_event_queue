@@ -14,3 +14,7 @@ criterion = "0.3.3"
 [[bench]]
 name = "read_bench"
 harness = false
+
+[[bench]]
+name = "write_bench"
+harness = false

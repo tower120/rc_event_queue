@@ -74,7 +74,7 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 /// CHUNK_SIZE = 512
 /// AUTO_CLEANUP = true
 pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
-    list  : Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,     // TODO: fast spin lock here / parking_lot
+    list  : parking_lot::Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,     // TODO: fast spin lock here
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
@@ -97,7 +97,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0/*, start_position_epoch: 0*/}),
+            list    : parking_lot::Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0/*, start_position_epoch: 0*/}),
             readers : AtomicUsize::new(0),
 
             start_position: parking_lot::Mutex::new(Cursor{chunk: node_ptr, index:0}),
@@ -107,7 +107,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     }
 
     pub fn push(&self, value: T){
-        let mut list = self.list.lock().unwrap();
+        let mut list = self.list.lock();
         let mut node = unsafe{&mut *list.last};
 
         // Relaxed because we update only under lock
@@ -134,7 +134,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
     pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
-        let list = self.list.lock().unwrap();
+        let list = self.list.lock();
 
         let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
         if prev_readers == 0{
@@ -155,7 +155,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
         event_reader.set_forward_position(
             Cursor{
-                chunk: list.last,
+                chunk: last_chunk,
                 index: last_chunk_len as usize
             },
             false);
@@ -164,7 +164,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
     // Called from EventReader Drop
     pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>){
-        let list = self.list.lock().unwrap();
+        let list = self.list.lock();
 
         // -1 read_completely_times for each chunk that reader passed
         unsafe {
@@ -194,7 +194,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     /// Free all completely read chunks.
     /// Called automatically with AUTO_CLEANUP = true.
     pub fn cleanup(&self){
-        let mut list = self.list.lock().unwrap();
+        let mut list = self.list.lock();
 
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
@@ -220,7 +220,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     }
 
     pub fn clear(&self){
-        let mut list = self.list.lock().unwrap();
+        let mut list = self.list.lock();
 
         let last_chunk = unsafe{ &*list.last };
         let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
@@ -252,7 +252,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        let list = self.list.lock().unwrap();
+        let list = self.list.lock();
         debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
         unsafe{
             let mut node_ptr = list.first;
