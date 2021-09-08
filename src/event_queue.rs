@@ -124,6 +124,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         unsafe{&mut *new_node_ptr}
     }
 
+    // Leave this for a while. Have filling that this one should be faster.
     // #[inline]
     // pub fn push(&self, value: T){
     //     let mut list = self.list.lock();

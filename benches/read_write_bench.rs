@@ -1,23 +1,29 @@
-use criterion::{Criterion, black_box, criterion_main, criterion_group};
+use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use events::event_queue::EventQueue;
 use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::pin::Pin;
 
 const queue_size : usize = 100000;
 
+type Event = EventQueue<usize, 512, false>;
+type ArcEvent = Pin<Arc<Event>>;
+
+
 /// We test high-contention read-write case.
-fn bench_event_read_write_whole(iters: u64) -> Duration{
+fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
+    where F: Fn(&ArcEvent, usize, usize) -> () + Send + 'static + Clone
+{
     let mut total = Duration::ZERO;
 
     let writers_thread_count = 2;
     let readers_thread_count = 4;
 
 
-
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = Event::new();
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
@@ -29,13 +35,11 @@ fn bench_event_read_write_whole(iters: u64) -> Duration{
         let writer_chunk = queue_size / writers_thread_count;
         for thread_id in 0..writers_thread_count{
             let event = event.clone();
+            let writer_fn = writer_fn.clone();
             let thread = Box::new(thread::spawn(move || {
                 let from = thread_id*writer_chunk;
                 let to = from+writer_chunk;
-
-                for i  in from..to{
-                    event.push(black_box(i));
-                }
+                writer_fn(&event, from, to);
             }));
             writer_threads.push(thread);
         }
@@ -81,16 +85,43 @@ fn bench_event_read_write_whole(iters: u64) -> Duration{
 
 
 pub fn read_write_event_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Write");
-    // for read_session_size in [4, 8, 16, 32, 128, 512]{
-    //     group.bench_with_input(
-    //         BenchmarkId::new("EventReader", read_session_size),
-    //         &read_session_size,
-    //    |b, input| b.iter_custom(|iters| { bench_event_reader(iters, *input) }));
-    // }
-    group.bench_function("EventQueue", |b|b.iter_custom(|iters| bench_event_read_write_whole(iters)));
-    // group.bench_function("Vec", |b|b.iter_custom(|iters| bench_vector_whole(iters)));
-    // group.bench_function("Deque", |b|b.iter_custom(|iters| bench_deque_whole(iters)));
+    let mut group = c.benchmark_group("EventQueue extend");
+    for session_size in [4, 8, 16, 32, 128, 512 as usize]{
+        group.bench_with_input(
+            BenchmarkId::new("EventQueue extend", session_size),
+            &session_size,
+            |b, input| b.iter_custom(|iters| {
+                let session_len = *input;
+                let f = move |event: &ArcEvent, from: usize, to: usize|{
+                    write_extend(session_len, event, from, to);
+                };
+                bench_event_read_write(iters, f)
+            }));
+    }
+
+    #[inline(always)]
+    fn write_push(event: &ArcEvent, from: usize, to: usize){
+        for i  in from..to{
+            event.push(black_box(i));
+        }
+    }
+    #[inline(always)]
+    fn write_extend(session_len: usize, event: &ArcEvent, from: usize, to: usize){
+        let mut i = from;
+        loop{
+            let session_from = i;
+            let session_to = session_from + session_len;
+            if session_to>=to{
+                return;
+            }
+
+            event.extend(black_box(session_from..session_to));
+
+            i = session_to;
+        }
+    }
+
+    group.bench_function("EventQueue push", |b|b.iter_custom(|iters| bench_event_read_write(iters, write_push)));
 }
 
 criterion_group!(benches, read_write_event_benchmark);
