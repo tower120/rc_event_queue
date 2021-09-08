@@ -34,7 +34,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         }
     }
 
-    pub fn set_epoch(&self, epoch: u32, load_ordering: Ordering, store_ordering: Ordering){
+    pub fn set_epoch(&mut self, epoch: u32, load_ordering: Ordering, store_ordering: Ordering){
         let len = self.len_and_epoch(load_ordering).len();
         self.len_and_start_position_epoch.store(
             LenAndEpoch::new(len, epoch).into(),
@@ -47,7 +47,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         &mut *self.storage.get()
     }
 
-    /// Needs additional synchronization. Several threads writing simultaneously may finish writes
+    /// Needs additional synchronization, because several threads writing simultaneously may finish writes
     /// not in order, but len increases sequentially. This may cause items before len index being not fully written.
     #[inline(always)]
     pub fn try_push(&mut self, value: T, store_ordering: Ordering) -> Result<(), CapacityError<T>>{
@@ -55,7 +55,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(Ordering::Relaxed).into();
         let index = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
-        if (index as usize) < CHUNK_SIZE{
+        if (index as usize) >= CHUNK_SIZE{
             return Result::Err(CapacityError{value});
         }
 
@@ -75,6 +75,44 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
             store_ordering
         );
     }
+
+    /// Append items from iterator, until have free space
+    /// Returns Ok if everything fit, CapacityError() - if not
+    pub fn extend<I>(&mut self, iter: &mut I, store_ordering: Ordering) -> Result<(), CapacityError<()>>
+        where I:Iterator<Item = T>
+    {
+        let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(Ordering::Relaxed).into();
+        let epoch = len_and_epoch.epoch();
+        let mut index = len_and_epoch.len() as usize;
+
+        loop {
+            if index == CHUNK_SIZE{
+                self.len_and_start_position_epoch.store(
+                    LenAndEpoch::new(CHUNK_SIZE as u32, epoch).into(),
+                    store_ordering
+                );
+                return Result::Err(CapacityError{value:()});
+            }
+
+            match iter.next(){
+                None => {
+                    self.len_and_start_position_epoch.store(
+                        LenAndEpoch::new(index as u32, epoch).into(),
+                        store_ordering
+                    );
+                    return Result::Ok(());
+                }
+                Some(value) => {
+                    unsafe{
+                        *self.get_storage().get_unchecked_mut(index) = MaybeUninit::new(value);
+                    }
+                }
+            }
+
+            index+=1;
+        }
+    }
+
 
     // #[inline(always)]
     // pub unsafe fn push_unchecked(&self, value: T, load_ordering: Ordering, store_ordering: Ordering){

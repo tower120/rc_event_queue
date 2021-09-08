@@ -26,6 +26,7 @@ use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
 use spin::mutex::SpinMutex;
+use std::borrow::BorrowMut;
 
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
@@ -106,29 +107,65 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         this
     }
 
+    #[inline]
+    fn add_chunk(&self, list: &mut List<T, CHUNK_SIZE, AUTO_CLEANUP>) -> &mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+        let node = unsafe{&mut *list.last};
+        let epoch = node.storage.len_and_epoch(Ordering::Relaxed).epoch();
+
+        // make new node
+        list.chunk_id_counter += 1;
+        let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, epoch, self);
+        let new_node_ptr = Box::into_raw(new_node);
+
+        // connect
+        node.next.store(new_node_ptr, Ordering::Release);
+        list.last = new_node_ptr;
+
+        unsafe{&mut *new_node_ptr}
+    }
+
+    // #[inline]
+    // pub fn push(&self, value: T){
+    //     let mut list = self.list.lock();
+    //     let mut node = unsafe{&mut *list.last};
+    //
+    //     // Relaxed because we update only under lock
+    //     let len_and_epoch: LenAndEpoch = node.storage.len_and_epoch(Ordering::Relaxed);
+    //     let mut storage_len = len_and_epoch.len();
+    //     let epoch = len_and_epoch.epoch();
+    //
+    //     if /*unlikely*/ storage_len as usize == CHUNK_SIZE{
+    //         node = self.add_chunk(list.borrow_mut());
+    //         storage_len = 0;
+    //     }
+    //
+    //     unsafe { node.storage.push_at(value, storage_len, epoch, Ordering::Release); }
+    // }
+
+    #[inline]
     pub fn push(&self, value: T){
+        let mut list = self.list.lock();
+        let node = unsafe{&mut *list.last};
+
+        if let Err(err) = node.storage.try_push(value, Ordering::Release){
+            let res = self.add_chunk(list.borrow_mut())
+                .storage.try_push(err.value, Ordering::Release);
+            debug_assert!(res.is_ok());
+        }
+    }
+
+    #[inline]
+    pub fn extend<I>(&self, iter: I)
+        where I: IntoIterator<Item = T>
+    {
         let mut list = self.list.lock();
         let mut node = unsafe{&mut *list.last};
 
-        // Relaxed because we update only under lock
-        let len_and_epoch: LenAndEpoch = node.storage.len_and_epoch(Ordering::Relaxed);
-        let mut storage_len = len_and_epoch.len();
-        let epoch = len_and_epoch.epoch();
+        let mut iter = iter.into_iter();
 
-        if /*unlikely*/ storage_len as usize == CHUNK_SIZE{
-            // make new node
-            list.chunk_id_counter += 1;
-            let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, epoch, self);
-            let new_node_ptr = Box::into_raw(new_node);
-            node.next = AtomicPtr::new(new_node_ptr);
-
-            list.last = new_node_ptr;
-            node = unsafe{&mut *new_node_ptr};
-
-            storage_len = 0;
+        while node.storage.extend(&mut iter, Ordering::Release).is_err(){
+            node = self.add_chunk(list.borrow_mut());
         }
-
-        unsafe { node.storage.push_at(value, storage_len, epoch, Ordering::Release); }
     }
 
     /// EventReader will start receive events from NOW.
@@ -232,7 +269,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         // update len_and_start_position_epoch in each chunk
         let new_epoch = len_and_epoch.epoch() + 1;
         unsafe {
-            foreach_chunk(
+            foreach_chunk_mut(
                 list.first,
                 null(),
                 |chunk| {
@@ -264,7 +301,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T
     }
 }
 
-/// end_chunk_ptr may be null
+#[inline(always)]
 pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
     start_chunk_ptr : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
@@ -272,6 +309,23 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
     mut func : F
 )
     where F: FnMut(&Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
+{
+    foreach_chunk_mut(
+        start_chunk_ptr as *mut _,
+        end_chunk_ptr,
+        |mut_chunk| func(mut_chunk)
+    );
+}
+
+/// end_chunk_ptr may be null
+#[inline(always)]
+pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+(
+    start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    mut func : F
+)
+    where F: FnMut(&mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
 {
     debug_assert!(!start_chunk_ptr.is_null());
     debug_assert!(
@@ -281,11 +335,11 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){
-        if chunk_ptr == end_chunk_ptr {
+        if chunk_ptr as *const _ == end_chunk_ptr {
             break;
         }
 
-        let chunk = &*chunk_ptr;
+        let chunk = &mut *chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
         let next_chunk_ptr = chunk.next.load(Ordering::Acquire);
 

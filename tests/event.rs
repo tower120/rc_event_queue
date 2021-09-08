@@ -5,6 +5,7 @@ use events::event_reader::EventReader;
 use std::thread;
 use std::borrow::BorrowMut;
 use std::sync::Arc;
+use std::ops::Range;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
@@ -95,13 +96,25 @@ fn read_on_full_chunk_test() {
 #[test]
 fn huge_push_test() {
     let event = EventQueue::<usize, 4, true>::new();
+    let mut reader = event.subscribe();
+
     for i in 0..100000{
         event.push(i);
     }
 
+    for _ in reader.iter(){}
+}
+
+#[test]
+fn extend_test() {
+    let event = EventQueue::<usize, 8, true>::new();
     let mut reader = event.subscribe();
 
-    for _ in reader.iter(){}
+    let rng : Range<usize> = 0..100000;
+
+    event.extend(rng.clone());
+
+    assert_eq!(reader.iter().sum::<usize>(), rng.sum());
 }
 
 
