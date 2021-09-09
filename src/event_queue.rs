@@ -43,9 +43,6 @@ pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     // Never changes.
     pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
 
-    /// Same across all chunks. Updated in [Event::clear]
-    //pub(super) len_and_start_position_epoch: AtomicU64,
-
     // Keep last
     pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
 }
@@ -59,7 +56,6 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, 
             read_completely_times : AtomicUsize::new(0),
             event : event,
             storage : ChunkStorage::new(epoch),
-            //len_and_start_position_epoch: AtomicU64::new(0)
         })
     }
 }
@@ -99,7 +95,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::pin(Self{
-            list    : parking_lot::Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0/*, start_position_epoch: 0*/}),
+            list    : parking_lot::Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
         });
@@ -283,7 +279,6 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
     // TODO: len in chunks
     // TODO: truncate
-    // TODO: push_array / push_session
     // TODO: reuse chunks (double/triple buffering)
 }
 
