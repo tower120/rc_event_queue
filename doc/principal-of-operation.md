@@ -113,6 +113,6 @@ So if you want to truncate queue due to memory limits, you need to touch all ass
 
 ## Optimisation techniques
 
-_AUTO_CLEANUP=false_
+_TODO: AUTO_CLEANUP=false_
 
-_reuse chunks_
+_TODO: reuse chunks_
