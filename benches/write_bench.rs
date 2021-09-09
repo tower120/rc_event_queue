@@ -1,7 +1,7 @@
 use criterion::{Criterion, BenchmarkId, black_box, criterion_main, criterion_group};
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
-use events::event_queue::EventQueue;
+use event_queue_rc::event_queue::EventQueue;
 
 const queue_size : usize = 100000;
 

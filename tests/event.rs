@@ -1,7 +1,7 @@
-use events::event_queue::{EventQueue};
+use event_queue_rc::event_queue::{EventQueue};
+use event_queue_rc::event_reader::EventReader;
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
 use itertools::{Itertools, assert_equal};
-use events::event_reader::EventReader;
 use std::thread;
 use std::borrow::BorrowMut;
 use std::sync::Arc;

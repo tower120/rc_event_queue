@@ -21,12 +21,21 @@ unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for Even
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
-    pub(super) fn set_forward_position(
+    pub(super) fn set_forward_position<const TRY_CLEANUP: bool>(
         &mut self,
-        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
-        try_cleanup : bool)
+        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
     {
         debug_assert!(new_position >= self.position);
+
+        let mut need_cleanup = false;
+        let readers_count_min_1 =
+            if TRY_CLEANUP {
+                let event = unsafe {&*(*new_position.chunk).event};
+                // TODO: bench acquire
+                event.readers.load(Ordering::Relaxed) - 1
+            } else {
+                0
+            };
 
         // 1. Mark passed chunks as read
         unsafe {
@@ -39,24 +48,23 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
                             ==
                         chunk.storage.capacity()
                     );
-                    chunk.read_completely_times.fetch_add(1, Ordering::AcqRel);
+                    let prev_read = chunk.read_completely_times.fetch_add(1, Ordering::AcqRel);
+
+                    if TRY_CLEANUP {
+                        if prev_read >= readers_count_min_1 {
+                            need_cleanup = true;
+                        }
+                    }
+
                     Continue(())
                 }
             );
         }
 
         // Cleanup (optional)
-        if try_cleanup{
-            let event = unsafe {&*(*self.position.chunk).event};
-
-            // Only if current chunk fully read, next chunks can be fully read to.
-            // So, as fast check look for active chunk only
-            let readers_count = event.readers.load(Ordering::Relaxed);
-            let chunk_read_times = unsafe{(*self.position.chunk).read_completely_times.load(Ordering::Relaxed)};
-
-            // This is fast, opportunistic Relaxed - based check without mutex lock.
-            // Should happen rarely. True check inside.
-            if chunk_read_times>=readers_count{
+        if TRY_CLEANUP {
+            if need_cleanup{
+                let event = unsafe {&*(*new_position.chunk).event};
                 event.cleanup();
             }
         }
@@ -72,7 +80,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         let event = unsafe{&*(*self.position.chunk).event};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position(new_start_position, AUTO_CLEANUP);
+            self.set_forward_position::<AUTO_CLEANUP>(new_start_position);
         }
     }
 
@@ -182,6 +190,6 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(self.position, AUTO_CLEANUP);
+        self.event_reader.set_forward_position::<AUTO_CLEANUP>(self.position);
     }
 }

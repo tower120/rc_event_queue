@@ -12,8 +12,8 @@
 //!
 
 use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
-use crate::chunk::{ChunkStorage, CapacityError};
 use std::sync::{Mutex, MutexGuard, Arc};
+use crate::chunk::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
 use std::cell::UnsafeCell;
@@ -191,12 +191,11 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         };
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
-        event_reader.set_forward_position(
+        event_reader.set_forward_position::<false>(
             Cursor{
                 chunk: last_chunk,
                 index: last_chunk_len as usize
-            },
-            false);
+            });
         event_reader
     }
 
@@ -258,7 +257,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     }
 
     pub fn clear(&self){
-        let mut list = self.list.lock();
+        let list = self.list.lock();
 
         let last_chunk = unsafe{ &*list.last };
         let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
