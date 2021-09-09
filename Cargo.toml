@@ -1,5 +1,5 @@
 [package]
-name = "event_queue_rc"
+name = "rc_event_queue"
 version = "0.1.0"
 edition = "2018"
 

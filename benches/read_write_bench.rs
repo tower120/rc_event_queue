@@ -1,6 +1,6 @@
+use rc_event_queue::event_queue::EventQueue;
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
-use event_queue_rc::event_queue::EventQueue;
 use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

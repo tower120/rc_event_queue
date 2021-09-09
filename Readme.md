@@ -1,4 +1,4 @@
-EventQueue with readers counter.
+## Reader counted event queue.
 
 Fast multi-producer multi-consumer message queue. Optimized for cases, where you need to write and read fast, and
 there is no serious contention between threads. In cases like this performance closes to single-threaded `VecDeque` reading.

@@ -1,5 +1,5 @@
+use rc_event_queue::event_queue::{EventQueue};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use event_queue_rc::event_queue::{EventQueue};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
 
