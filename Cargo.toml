@@ -1,5 +1,7 @@
 [package]
 name = "rc_event_queue"
+authors = ["Andrey Diduh <tower120@gmail.com>"]
+license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2018"
 
