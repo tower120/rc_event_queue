@@ -156,6 +156,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         }
     }
 
+    // Not a Extend trait, because Extend::extend(&mut self)
     #[inline]
     pub fn extend<I>(&self, iter: I)
         where I: IntoIterator<Item = T>
@@ -285,6 +286,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     // TODO: len in chunks
     // TODO: truncate
     // TODO: reuse chunks (double/triple buffering)
+    // TODO: try non-fixed chunks
 }
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
