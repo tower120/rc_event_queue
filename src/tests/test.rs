@@ -1,11 +1,10 @@
-use rc_event_queue::event_queue::{EventQueue};
-use rc_event_queue::event_reader::EventReader;
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
+use crate::event_queue::{EventQueue};
+use crate::event_reader::EventReader;
+use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
-use std::thread;
 use std::borrow::BorrowMut;
-use std::sync::Arc;
 use std::ops::Range;
+use super::common::*;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
@@ -141,36 +140,9 @@ fn clean_test() {
 
 #[test]
 fn mt_read_test() {
-for _ in 0..10{
-    let threads_count = 40;
-    let event = EventQueue::<usize, 512, true>::new();
-
-    let mut readers = Vec::new();
-    for _ in 0..threads_count{
-        readers.push(event.subscribe());
+    for _ in 0..10{
+        mt_read_test_impl::<512>(4, 100000);
     }
-
-    let mut sum = 0;
-    for i in 0..1000000{
-        event.push(i);
-        sum += i;
-    }
-
-    // read
-    let mut threads = Vec::new();
-    for mut reader in readers{
-        let thread = Box::new(thread::spawn(move || {
-            // some work here
-            let local_sum: usize = reader.iter().sum();
-            assert!(local_sum == sum);
-        }));
-        threads.push(thread);
-    }
-
-    for thread in threads{
-        thread.join().unwrap();
-    }
-}
 }
 
 #[test]
@@ -231,6 +203,7 @@ for _ in 0..10{
                 }
 
                 if stop{ break; }
+                std::hint::spin_loop();
             }
 
             assert_eq!(local_sum0, sum0);

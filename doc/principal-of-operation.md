@@ -1,6 +1,6 @@
 # Principal of operation
 
-EventQueue is multi-producer, multi-consumer message queue.
+EventQueue is multi-producer, multi-consumer FIFO queue.
 Performance-wise it is biased to the readers side. All reads are lockless and very fast.
 Writes happens under lock.
 

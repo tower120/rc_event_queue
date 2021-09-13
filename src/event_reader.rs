@@ -3,7 +3,7 @@
 // Chunk's iteration synchronization occurs around [ChunkStorage::storage_len] acquire/release access
 //
 
-use std::sync::atomic::Ordering;
+use crate::sync::Ordering;
 use std::ptr::null_mut;
 use crate::event_queue::{Chunk, EventQueue, foreach_chunk};
 use std::ptr;

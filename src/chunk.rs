@@ -3,11 +3,11 @@
 //!
 //! Elements thread-safe mutable access is not guaranteed. Read only is always thread-safe.
 
-use std::sync::atomic::{Ordering, AtomicU64};
+use crate::sync::{Ordering, AtomicU64};
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::cell::UnsafeCell;
 use crate::len_and_epoch::LenAndEpoch;
+use std::cell::UnsafeCell;
 
 /// Error, indicating insufficient capacity
 pub struct CapacityError<V>{
@@ -15,9 +15,9 @@ pub struct CapacityError<V>{
 }
 
 pub struct ChunkStorage<T, const CHUNK_SIZE: usize>{
-    storage     : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
+    storage : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
 
-    /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [Event::clear]
+    /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [EventQueue::clear]
     /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
     /// touching EventQueue and without additional atomic load(acquire)
     len_and_start_position_epoch: AtomicU64,

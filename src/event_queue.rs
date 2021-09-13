@@ -11,8 +11,15 @@
 //! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
 //!
 
-use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
-use std::sync::{Mutex, MutexGuard, Arc};
+/*use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
+use std::sync::{MutexGuard, Arc};
+use spin::mutex::SpinMutex;
+*/
+
+use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
+use crate::sync::{Mutex, MutexGuard, Arc};
+use crate::sync::{SpinMutex, SpinMutexGuard};
+
 use crate::chunk::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
@@ -25,8 +32,6 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
-use spin::mutex::SpinMutex;
-use std::borrow::BorrowMut;
 
 pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
@@ -72,7 +77,7 @@ struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 /// CHUNK_SIZE = 512
 /// AUTO_CLEANUP = true
 pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
-    list  : parking_lot::Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    list  : Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
@@ -95,7 +100,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
         let node_ptr = Box::into_raw(node);
         let this = Arc::pin(Self{
-            list    : parking_lot::Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
+            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
         });
@@ -132,7 +137,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     //     let epoch = len_and_epoch.epoch();
     //
     //     if /*unlikely*/ storage_len as usize == CHUNK_SIZE{
-    //         node = self.add_chunk(list.borrow_mut());
+    //         node = self.add_chunk(&mut *list);
     //         storage_len = 0;
     //     }
     //
@@ -145,7 +150,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let node = unsafe{&mut *list.last};
 
         if let Err(err) = node.storage.try_push(value, Ordering::Release){
-            let res = self.add_chunk(list.borrow_mut())
+            let res = self.add_chunk(&mut *list)
                 .storage.try_push(err.value, Ordering::Release);
             debug_assert!(res.is_ok());
         }
@@ -161,7 +166,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let mut iter = iter.into_iter();
 
         while node.storage.extend(&mut iter, Ordering::Release).is_err(){
-            node = self.add_chunk(list.borrow_mut());
+            node = self.add_chunk(&mut *list);
         }
     }
 

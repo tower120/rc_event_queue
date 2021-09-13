@@ -1,11 +1,10 @@
-## Reader counted event queue.
+## Reader counted event queue
 
-Fast multi-producer multi-consumer message queue. Optimized for cases, where you need to write and read fast, and
-there is no serious contention between threads. In cases like this performance closes to single-threaded `VecDeque` reading.
+Fast, multi-producer multi-consumer FIFO queue. Lockless read, fast-lock write. 
 
-Have very low CPU+memory overhead.
+Have very low CPU+memory overhead. Single-thread read performance close to `VecDeque`. Write performance, using `EventQueue::extend` with >32 items, close to `VecDeque` as well. See benchmarks.
 
-See [principle of operation](doc/principal-of-operation.md).
+[Principle of operation](doc/principal-of-operation.md).
 
 ```rust
 let event = EventQueue<usize, 512, true>::new();
@@ -17,6 +16,19 @@ event.push(100);
 event.push(1000);
 
 assert!(reader.iter().sum() == 1111);
+assert!(reader.iter().sum() == 0);
+
+event.extend(0..10);
+assert!(reader.iter().sum() == 55);
 ```
 
-WIP.
+Support "soft clear":
+```rust
+event.push(1);
+event.push(10);
+event.clear();
+event.push(100);
+event.push(1000);
+
+assert!(reader.iter().sum() == 1100);
+```
