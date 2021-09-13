@@ -141,7 +141,7 @@ fn clean_test() {
 #[test]
 fn mt_read_test() {
     for _ in 0..10{
-        mt_read_test_impl::<512>(4, 100000);
+        mt_read_test_impl::<512>(4, 1000000);
     }
 }
 

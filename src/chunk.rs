@@ -7,7 +7,6 @@ use crate::sync::{Ordering, AtomicU64};
 use std::mem::MaybeUninit;
 use std::ptr;
 use crate::len_and_epoch::LenAndEpoch;
-use std::cell::UnsafeCell;
 
 /// Error, indicating insufficient capacity
 pub struct CapacityError<V>{
@@ -15,7 +14,7 @@ pub struct CapacityError<V>{
 }
 
 pub struct ChunkStorage<T, const CHUNK_SIZE: usize>{
-    storage : UnsafeCell<[MaybeUninit<T>; CHUNK_SIZE]>,
+    storage : [MaybeUninit<T>; CHUNK_SIZE],
 
     /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [EventQueue::clear]
     /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
@@ -42,11 +41,6 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
         );
     }
 
-    #[inline(always)]
-    unsafe fn get_storage(&self) -> &mut [MaybeUninit<T>; CHUNK_SIZE]{
-        &mut *self.storage.get()
-    }
-
     /// Needs additional synchronization, because several threads writing simultaneously may finish writes
     /// not in order, but len increases sequentially. This may cause items before len index being not fully written.
     #[inline(always)]
@@ -68,7 +62,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
     pub(super) unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
         debug_assert!((index as usize) < CHUNK_SIZE);
 
-        *self.get_storage().get_unchecked_mut(index as usize) = MaybeUninit::new(value);
+        *self.storage.get_unchecked_mut(index as usize) = MaybeUninit::new(value);
 
         self.len_and_start_position_epoch.store(
             LenAndEpoch::new(index+1, epoch).into(),
@@ -104,7 +98,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
                 }
                 Some(value) => {
                     unsafe{
-                        *self.get_storage().get_unchecked_mut(index) = MaybeUninit::new(value);
+                        *self.storage.get_unchecked_mut(index) = MaybeUninit::new(value);
                     }
                 }
             }
@@ -131,12 +125,12 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
 
     #[inline(always)]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T{
-        self.get_storage().get_unchecked(index).assume_init_ref()
+        self.storage.get_unchecked(index).assume_init_ref()
     }
 
     #[inline(always)]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T{
-        self.get_storage().get_unchecked_mut(index).assume_init_mut()
+        self.storage.get_unchecked_mut(index).assume_init_mut()
     }
 
     #[inline(always)]
@@ -153,9 +147,8 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
 impl<T, const CHUNK_SIZE: usize> Drop for ChunkStorage<T, CHUNK_SIZE> {
     fn drop(&mut self) {
         let len = self.len_and_epoch(Ordering::Acquire).len() as usize;
-        let storage  = unsafe{ self.get_storage() };
         for i in 0..len {
-             unsafe{ ptr::drop_in_place(storage.get_unchecked_mut(i).as_mut_ptr()); }
+             unsafe{ ptr::drop_in_place(self.storage.get_unchecked_mut(i).as_mut_ptr()); }
         }
     }
 }
