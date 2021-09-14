@@ -86,10 +86,10 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
     pub(super) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+
+    pinned: PhantomPinned,
 }
 
-// !Unpin 5% faster then PhantomPinned
-impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> !Unpin for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 
@@ -103,6 +103,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
+            pinned: PhantomPinned,
         });
         unsafe {(*node_ptr).event = &*this};
         this

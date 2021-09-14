@@ -1,5 +1,3 @@
-#![feature(negative_impls)]
-
 mod sync;
 mod chunk;
 mod utils;
