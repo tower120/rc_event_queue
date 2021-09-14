@@ -1,8 +1,9 @@
 use crate::event_queue::{EventQueue};
 use crate::event_reader::EventReader;
-use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
+use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread, Mutex};
 use itertools::{Itertools, assert_equal};
 use super::common::*;
+use loom::sync::Condvar;
 
 #[test]
 fn loom_mt_read_test(){
@@ -50,8 +51,8 @@ fn loom_mt_write_read_test(){
             writer_threads.push(thread);
         }
 
-        let readers_stop = loom::sync::Arc::new(
-            (loom::sync::Mutex::new(false), loom::sync::Condvar::new())
+        let readers_stop = Arc::new(
+            (Mutex::new(false), Condvar::new())
         );
 
         let mut reader_threads = Vec::new();
