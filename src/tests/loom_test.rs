@@ -68,7 +68,7 @@ fn loom_mt_write_read_test(){
                 // to consume leftovers. Since iter's end/sentinel acquired at iter construction.
 
                 let (lock, cvar) = &*readers_stop;
-                let mut stopped = lock.lock().unwrap();
+                let mut stopped = lock.lock();
 
                 loop {
                     for [i0, i1,  i2, i3] in reader.iter(){
@@ -96,7 +96,7 @@ fn loom_mt_write_read_test(){
 
         {
             let (lock, cvar) = &*readers_stop;
-            let mut stopped = lock.lock().unwrap();
+            let mut stopped = lock.lock();
             *stopped = true;
             cvar.notify_all();
         }

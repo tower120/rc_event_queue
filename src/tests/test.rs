@@ -139,6 +139,63 @@ fn clean_test() {
 }
 
 #[test]
+fn truncate_front_test1() {
+    let event = EventQueue::<usize, 4, true>::new();
+
+    event.extend(0..3);
+
+    let truncated_chunks = event.truncate_front(1);
+    assert_eq!(truncated_chunks, 0);
+    assert_eq!(event.chunks_count(), 1);
+
+    event.extend(3..6);
+    assert_eq!(event.chunks_count(), 2);
+
+    let truncated_chunks = event.truncate_front(1);
+    assert_eq!(truncated_chunks, 1);
+    assert_eq!(event.chunks_count(), 1);
+}
+
+#[test]
+fn truncate_front_test2() {
+    let event = EventQueue::<usize, 4, true>::new();
+    let mut reader = event.subscribe();
+
+    event.extend(0..40);
+    assert_eq!(event.chunks_count(), 10);
+
+    let truncated_chunks = event.truncate_front(2);
+    assert_eq!(truncated_chunks, 8);
+
+    assert_eq!(event.chunks_count(), 10);
+    reader.update_position();
+    assert_eq!(event.chunks_count(), 2);
+
+    assert_equal(reader.iter().copied(), 32..40);
+    assert_eq!(event.chunks_count(), 1);
+}
+
+#[test]
+fn chunks_count_test() {
+    let event = EventQueue::<usize, 4, true>::new();
+
+    assert_eq!(event.chunks_count(), 1);
+    event.push(0);
+    event.push(1);
+    event.push(2);
+    event.push(3);
+    assert_eq!(event.chunks_count(), 1);
+
+    event.push(4);
+    assert_eq!(event.chunks_count(), 2);
+    event.push(5);
+    assert_eq!(event.chunks_count(), 2);
+
+    event.clear();
+    assert_eq!(event.chunks_count(), 1);
+}
+
+#[test]
 fn mt_read_test() {
     for _ in 0..10{
         mt_read_test_impl::<512>(4, 1000000);

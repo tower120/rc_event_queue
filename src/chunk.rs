@@ -59,6 +59,16 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
     }
 
     #[inline(always)]
+    pub unsafe fn push_unchecked(&mut self, value: T, store_ordering: Ordering){
+        // Relaxed because updated only with &mut self
+        let len_and_epoch: LenAndEpoch = self.len_and_start_position_epoch.load(Ordering::Relaxed).into();
+        let index = len_and_epoch.len();
+        let epoch = len_and_epoch.epoch();
+
+        self.push_at(value, index, epoch, store_ordering);
+    }
+
+    #[inline(always)]
     pub(super) unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
         debug_assert!((index as usize) < CHUNK_SIZE);
 

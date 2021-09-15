@@ -87,7 +87,7 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     /// chunk's atomic len+epoch.
     pub(super) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 
-    pinned: PhantomPinned,
+    _pinned: PhantomPinned,
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
@@ -103,7 +103,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
-            pinned: PhantomPinned,
+            _pinned: PhantomPinned,
         });
         unsafe {(*node_ptr).event = &*this};
         this
@@ -126,7 +126,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         unsafe{&mut *new_node_ptr}
     }
 
-    // Leave this for a while. Have filling that this one should be faster.
+    // Leave this for a while. Have feeling that this one should be faster.
     // #[inline]
     // pub fn push(&self, value: T){
     //     let mut list = self.list.lock();
@@ -151,13 +151,14 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let node = unsafe{&mut *list.last};
 
         if let Err(err) = node.storage.try_push(value, Ordering::Release){
-            let res = self.add_chunk(&mut *list)
-                .storage.try_push(err.value, Ordering::Release);
-            debug_assert!(res.is_ok());
+            unsafe {
+                self.add_chunk(&mut *list)
+                    .storage.push_unchecked(err.value, Ordering::Release);
+            }
         }
     }
 
-    // Not a Extend trait, because Extend::extend(&mut self)
+    // Not an Extend trait, because Extend::extend(&mut self)
     #[inline]
     pub fn extend<I>(&self, iter: I)
         where I: IntoIterator<Item = T>
@@ -168,7 +169,14 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let mut iter = iter.into_iter();
 
         while node.storage.extend(&mut iter, Ordering::Release).is_err(){
-            node = self.add_chunk(&mut *list);
+            match iter.next() {
+                None => {return;}
+                Some(value) => {
+                    // add chunk and push value there
+                    node = self.add_chunk(&mut *list);
+                    unsafe{ node.storage.push_unchecked(value, Ordering::Relaxed); }
+                }
+            };
         }
     }
 
@@ -231,11 +239,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         }
     }
 
-    /// Free all completely read chunks.
-    /// Called automatically with AUTO_CLEANUP = true.
-    pub fn cleanup(&self){
-        let mut list = self.list.lock();
-
+    fn cleanup_impl(&self, mut list: MutexGuard<List<T, CHUNK_SIZE, AUTO_CLEANUP>>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             foreach_chunk(
@@ -259,18 +263,22 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         }
     }
 
-    pub fn clear(&self){
-        let list = self.list.lock();
+    /// Free all completely read chunks.
+    /// Called automatically with AUTO_CLEANUP = true.
+    pub fn cleanup(&self){
+        self.cleanup_impl(self.list.lock());
+    }
 
-        let last_chunk = unsafe{ &*list.last };
-        let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
-        *self.start_position.lock() = Cursor {
-            chunk: last_chunk,
-            index: len_and_epoch.len() as usize
-        };
+    #[inline]
+    fn set_start_position(
+        &self,
+        list: MutexGuard<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+        new_start_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
+    {
+        *self.start_position.lock() = new_start_position;
 
         // update len_and_start_position_epoch in each chunk
-        let new_epoch = len_and_epoch.epoch() + 1;
+        let new_epoch = unsafe{ (*list.first).storage.len_and_epoch(Ordering::Relaxed).epoch() } + 1;
         unsafe {
             foreach_chunk_mut(
                 list.first,
@@ -281,11 +289,70 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
                 }
             );
         }
+
+        if AUTO_CLEANUP {
+            if self.readers.load(Ordering::Relaxed) == 0{
+                self.cleanup_impl(list);
+            }
+        }
     }
 
+    pub fn clear(&self){
+        let list = self.list.lock();
 
-    // TODO: len in chunks
-    // TODO: truncate
+        let last_chunk = unsafe{ &*list.last };
+        let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
+
+        self.set_start_position(list, Cursor {
+            chunk: last_chunk,
+            index: len_and_epoch.len() as usize
+        });
+    }
+
+    /// Shortens the `EventQueue`, keeping the last `chunks_count` chunks and dropping the first ones.
+    /// At least one chunk always remains.
+    /// Returns number of freed chunks
+    pub fn truncate_front(&self, chunks_count: usize) -> usize {
+        let list = self.list.lock();
+
+        let chunk_id = list.chunk_id_counter as isize - chunks_count as isize + 1;
+        if chunk_id <= 0{
+            return 0;
+        }
+
+        let freed_chunks = chunk_id as usize - unsafe{(*list.first).id};
+
+        let mut start_chunk = null();
+        unsafe {
+            foreach_chunk(
+                list.first,
+                null(),
+                |chunk| {
+                    if chunk.id == chunk_id as usize{
+                        start_chunk = chunk;
+                        return Break(());
+                    }
+                    Continue(())
+                }
+            );
+        }
+
+        self.set_start_position(list, Cursor {
+            chunk: start_chunk,
+            index: 0
+        });
+
+        return freed_chunks;
+    }
+
+    // chunks_count can be atomic. But does that needed?
+    pub fn chunks_count(&self) -> usize {
+        let list = self.list.lock();
+        unsafe{
+            list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id + 1
+        }
+    }
+
     // TODO: reuse chunks (double/triple buffering)
     // TODO: try non-fixed chunks
 }

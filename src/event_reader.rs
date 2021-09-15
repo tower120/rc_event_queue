@@ -173,8 +173,9 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
             self.chunk_len = chunk.storage.len_and_epoch(Ordering::Acquire).len() as usize;
 
-            // Maybe 0 when new chunk is created, but item still not pushed.
-            // It is faster to have rare additional check here, then in `push`
+            // Maybe 0, when new chunk is created, but item still not pushed.
+            // It is possible rework `push`/`extend` in the way that this situation will not exists.
+            // But for now, just have this check here.
             if self.chunk_len == 0 {
                 return None;
             }
