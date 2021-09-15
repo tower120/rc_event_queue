@@ -11,11 +11,6 @@
 //! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
 //!
 
-/*use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
-use std::sync::{MutexGuard, Arc};
-use spin::mutex::SpinMutex;
-*/
-
 use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
 use crate::sync::{Mutex, MutexGuard, Arc};
 use crate::sync::{SpinMutex, SpinMutexGuard};
@@ -40,7 +35,7 @@ use crate::event_reader::event_reader::EventReader;
 /// CHUNK_SIZE = 512
 /// AUTO_CLEANUP = true
 pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
-    list  : Mutex<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    list  : Mutex<List<T, CHUNK_SIZE>>,
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
@@ -49,8 +44,6 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
     pub(crate) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
-
-    _pinned: PhantomPinned,
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
@@ -59,27 +52,24 @@ unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Even
 
 impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
-    pub fn new() -> Pin<Arc<Self>>{
-        let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
+    pub fn new() -> Self {
+        let node = Chunk::<T, CHUNK_SIZE>::new(0, 0);
         let node_ptr = Box::into_raw(node);
-        let this = Arc::pin(Self{
+        Self{
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
-            _pinned: PhantomPinned,
-        });
-        unsafe {(*node_ptr).event = &*this};
-        this
+        }
     }
 
     #[inline]
-    fn add_chunk(&self, list: &mut List<T, CHUNK_SIZE, AUTO_CLEANUP>) -> &mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    fn add_chunk(&self, list: &mut List<T, CHUNK_SIZE>) -> &mut Chunk<T, CHUNK_SIZE>{
         let node = unsafe{&mut *list.last};
         let epoch = node.storage.len_and_epoch(Ordering::Relaxed).epoch();
 
         // make new node
         list.chunk_id_counter += 1;
-        let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, epoch, self);
+        let new_node = Chunk::<T, CHUNK_SIZE>::new(list.chunk_id_counter, epoch);
         let new_node_ptr = Box::into_raw(new_node);
 
         // connect
@@ -148,11 +138,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
         let list = self.list.lock();
 
-        let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
-        if prev_readers == 0{
-            // Keep alive. Decrements in unsubscribe
-            unsafe { Arc::increment_strong_count(self); }
-        }
+        self.readers.fetch_add(1, Ordering::Relaxed);
 
         let last_chunk = unsafe{&*list.last};
         let last_chunk_len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
@@ -166,6 +152,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
         event_reader.set_forward_position::<false>(
+            self,
             Cursor{
                 chunk: last_chunk,
                 index: last_chunk_len as usize
@@ -194,15 +181,10 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             );
         }
 
-        let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
-        if prev_readers == 1{
-            std::mem::drop(list);
-            // Safe to self-destruct
-            unsafe { Arc::decrement_strong_count(self); }
-        }
+        self.readers.fetch_sub(1, Ordering::Relaxed);
     }
 
-    fn cleanup_impl(&self, mut list: MutexGuard<List<T, CHUNK_SIZE, AUTO_CLEANUP>>){
+    fn cleanup_impl(&self, mut list: MutexGuard<List<T, CHUNK_SIZE>>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             foreach_chunk(
@@ -235,7 +217,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     #[inline]
     fn set_start_position(
         &self,
-        list: MutexGuard<List<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+        list: MutexGuard<List<T, CHUNK_SIZE>>,
         new_start_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
     {
         *self.start_position.lock() = new_start_position;
@@ -335,13 +317,13 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T
 }
 
 #[inline(always)]
-pub(crate) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+pub(crate) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize>
 (
-    start_chunk_ptr : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    start_chunk_ptr : *const Chunk<T, CHUNK_SIZE>,
+    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE>,
     mut func : F
 )
-    where F: FnMut(&Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
+    where F: FnMut(&Chunk<T, CHUNK_SIZE>) -> ControlFlow<()>
 {
     foreach_chunk_mut(
         start_chunk_ptr as *mut _,
@@ -352,19 +334,19 @@ pub(crate) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
 
 /// end_chunk_ptr may be null
 #[inline(always)]
-pub(crate) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+pub(crate) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize>
 (
-    start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE>,
+    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE>,
     mut func : F
 )
-    where F: FnMut(&mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
+    where F: FnMut(&mut Chunk<T, CHUNK_SIZE>) -> ControlFlow<()>
 {
     debug_assert!(!start_chunk_ptr.is_null());
-    debug_assert!(
-        end_chunk_ptr.is_null()
-            ||
-        (*start_chunk_ptr).event == (*end_chunk_ptr).event);
+    // debug_assert!(
+    //     end_chunk_ptr.is_null()
+    //         ||
+    //     (*start_chunk_ptr).event == (*end_chunk_ptr).event);
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){

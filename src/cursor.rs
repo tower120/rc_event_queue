@@ -6,7 +6,7 @@ pub(crate) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 {
     // TODO: try hide
     /// Always valid
-    pub chunk: *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub chunk: *const Chunk<T, CHUNK_SIZE>,
     /// in-chunk index
     pub index : usize
 }
@@ -20,7 +20,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Clone for Cursor<T, CH
 
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
-    fn chunk_ref(&self) -> &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    fn chunk_ref(&self) -> &Chunk<T, CHUNK_SIZE>{
         unsafe { &*self.chunk }
     }
 }

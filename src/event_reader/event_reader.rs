@@ -9,7 +9,7 @@ use std::ptr;
 use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
 use crate::cursor::Cursor;
-use crate::event_queue::event_queue::foreach_chunk;
+use crate::event_queue::event_queue::{foreach_chunk, EventQueue};
 use crate::event_queue::chunk::Chunk;
 use crate::event_reader::iter::Iter;
 
@@ -25,6 +25,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
 {
     pub(crate) fn set_forward_position<const TRY_CLEANUP: bool>(
         &mut self,
+        event: &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
         new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
     {
         debug_assert!(new_position >= self.position);
@@ -32,7 +33,6 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         let mut need_cleanup = false;
         let readers_count_min_1 =
             if TRY_CLEANUP {
-                let event = unsafe {&*(*new_position.chunk).event};
                 // TODO: bench acquire
                 event.readers.load(Ordering::Relaxed) - 1
             } else {
@@ -66,7 +66,6 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         // Cleanup (optional)
         if TRY_CLEANUP {
             if need_cleanup{
-                let event = unsafe {&*(*new_position.chunk).event};
                 event.cleanup();
             }
         }
@@ -78,21 +77,25 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     // Have much better performance being non-inline. Occurs rarely.
     #[inline(never)]
     #[cold]
-    fn do_update_start_position(&mut self){
-        let event = unsafe{&*(*self.position.chunk).event};
+    fn do_update_start_position(&mut self, event: &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>){
+        //let event = unsafe{&*(*self.position.chunk).event};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position::<AUTO_CLEANUP>(new_start_position);
+            self.set_forward_position::<AUTO_CLEANUP>(event, new_start_position);
         }
     }
 
-    pub(super) fn get_chunk_len_and_update_start_position(&mut self, chunk: &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
+    pub(super) fn get_chunk_len_and_update_start_position(
+        &mut self,
+        event: &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
+        chunk: &Chunk<T, CHUNK_SIZE>,
+    ) -> usize {
         let len_and_epoch = chunk.storage.len_and_epoch(Ordering::Acquire);
         let len = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
 
         if epoch != self.start_position_epoch {
-            self.do_update_start_position();
+            self.do_update_start_position(event);
             self.start_position_epoch = epoch;
         }
         len as usize
@@ -108,21 +111,21 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     ///
     // This is basically the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
-    pub fn update_position(&mut self) {
-        self.get_chunk_len_and_update_start_position( unsafe{&*self.position.chunk});
-    }
+    // pub fn update_position(&mut self) {
+    //     self.get_chunk_len_and_update_start_position( unsafe{&*self.position.chunk});
+    // }
 
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
-    pub fn iter(&mut self) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
-        Iter::new(self)
+    pub fn iter<'a>(&'a mut self, event: &'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
+        Iter::new(self, event)
     }
 }
 
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        unsafe { (*(*self.position.chunk).event).unsubscribe(self); }
+        panic!("EventReader must be unsubscribed!");
     }
 }

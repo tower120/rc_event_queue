@@ -2,6 +2,7 @@ use crate::event_reader::event_reader::EventReader;
 use crate::cursor::Cursor;
 use crate::sync::Ordering;
 use std::ptr::null_mut;
+use crate::event_queue::event_queue::EventQueue;
 
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
@@ -11,16 +12,22 @@ pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
     position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_len : usize,
     event_reader : &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    event : &'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
 }
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
-    pub(super) fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
+    pub(super) fn new(
+        event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>,
+        event : &'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    ) -> Self
+    {
         let chunk = unsafe{&*event_reader.position.chunk};
-        let chunk_len = event_reader.get_chunk_len_and_update_start_position(chunk);
+        let chunk_len = event_reader.get_chunk_len_and_update_start_position(event, chunk);
         Self{
             position: event_reader.position,
-            chunk_len : chunk_len,
-            event_reader : event_reader,
+            chunk_len,
+            event_reader,
+            event
         }
     }
 }
@@ -69,6 +76,6 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
 
 impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position::<AUTO_CLEANUP>(self.position);
+        self.event_reader.set_forward_position::<AUTO_CLEANUP>(self.event, self.position);
     }
 }
