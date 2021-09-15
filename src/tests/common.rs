@@ -1,7 +1,7 @@
-use crate::event_queue::{EventQueue};
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
+use crate::event_queue::event_queue::EventQueue;
 
 pub(crate) fn mt_read_test_impl<const CHUNK_SIZE: usize>(threads_count: usize, len: usize) {
     let event = EventQueue::<usize, CHUNK_SIZE, true>::new();

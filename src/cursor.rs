@@ -1,5 +1,5 @@
-use crate::event_queue::Chunk;
 use std::cmp::Ordering;
+use crate::event_queue::chunk::Chunk;
 
 // TODO: Untested comparison!!
 pub(super) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>

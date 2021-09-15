@@ -69,7 +69,7 @@ impl<T, const CHUNK_SIZE: usize> ChunkStorage<T, CHUNK_SIZE> {
     }
 
     #[inline(always)]
-    pub(super) unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
+    pub(crate) unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
         debug_assert!((index as usize) < CHUNK_SIZE);
 
         *self.storage.get_unchecked_mut(index as usize) = MaybeUninit::new(value);

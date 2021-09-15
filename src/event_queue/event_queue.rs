@@ -20,7 +20,7 @@ use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
 use crate::sync::{Mutex, MutexGuard, Arc};
 use crate::sync::{SpinMutex, SpinMutexGuard};
 
-use crate::chunk::{ChunkStorage, CapacityError};
+use crate::event_queue::chunk_storage::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
 use std::cell::UnsafeCell;
@@ -32,45 +32,8 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
-
-pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
-    /// Just to compare chunks by age/sequence fast. Brings order.
-    /// Will overflow after years... So just ignore that possibility.
-    pub(super) id      : usize,
-    pub(super) next    : AtomicPtr<Self>,
-
-    /// When == readers count, it is safe to delete this chunk.
-    /// Chunk read completely if reader consumed CHUNK_SIZE'ed element.
-    /// Last chunk always exists
-    pub(super) read_completely_times : AtomicUsize,
-
-    // This needed to access Event from EventReader.
-    // Never changes.
-    pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
-
-    // Keep last
-    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
-}
-
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
-{
-    fn new(id: usize, epoch: u32, event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
-        Box::new(Self{
-            id   : id,
-            next : AtomicPtr::new(null_mut()),
-            read_completely_times : AtomicUsize::new(0),
-            event : event,
-            storage : ChunkStorage::new(epoch),
-        })
-    }
-}
-
-
-struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
-    first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    chunk_id_counter: usize,
-}
+use crate::event_queue::chunk::Chunk;
+use crate::event_queue::list::List;
 
 /// Defaults:
 ///
@@ -81,11 +44,11 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
-    pub(super) readers: AtomicUsize,
+    pub(crate) readers: AtomicUsize,
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(super) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(crate) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 
     _pinned: PhantomPinned,
 }
@@ -211,7 +174,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     }
 
     // Called from EventReader Drop
-    pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>){
+    pub(crate) fn unsubscribe(&self, event_reader: &EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>){
         let list = self.list.lock();
 
         // -1 read_completely_times for each chunk that reader passed
@@ -372,7 +335,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T
 }
 
 #[inline(always)]
-pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+pub(crate) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
     start_chunk_ptr : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
@@ -389,7 +352,7 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
 
 /// end_chunk_ptr may be null
 #[inline(always)]
-pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+pub(crate) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
     start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,

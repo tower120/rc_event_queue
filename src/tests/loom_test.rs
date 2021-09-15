@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue};
+use crate::event_queue::event_queue::EventQueue;
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread, Mutex};
 use itertools::{Itertools, assert_equal};

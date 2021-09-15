@@ -1,10 +1,10 @@
-use crate::event_queue::{EventQueue};
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
 use std::borrow::BorrowMut;
 use std::ops::Range;
 use super::common::*;
+use crate::event_queue::event_queue::EventQueue;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{

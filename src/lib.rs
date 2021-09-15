@@ -1,5 +1,4 @@
 mod sync;
-mod chunk;
 mod utils;
 mod cursor;
 pub mod event_queue;

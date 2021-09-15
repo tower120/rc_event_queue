@@ -5,11 +5,12 @@
 
 use crate::sync::Ordering;
 use std::ptr::null_mut;
-use crate::event_queue::{Chunk, EventQueue, foreach_chunk};
 use std::ptr;
 use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
 use crate::cursor::Cursor;
+use crate::event_queue::event_queue::foreach_chunk;
+use crate::event_queue::chunk::Chunk;
 
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
