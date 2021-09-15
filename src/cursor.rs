@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use crate::event_queue::chunk::Chunk;
 
 // TODO: Untested comparison!!
-pub(super) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
+pub(crate) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 {
     // TODO: try hide
     /// Always valid

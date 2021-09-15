@@ -22,7 +22,6 @@ use crate::sync::{SpinMutex, SpinMutexGuard};
 
 use crate::event_queue::chunk_storage::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
-use crate::event_reader::EventReader;
 use std::cell::UnsafeCell;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
@@ -34,6 +33,7 @@ use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
 use crate::event_queue::chunk::Chunk;
 use crate::event_queue::list::List;
+use crate::event_reader::event_reader::EventReader;
 
 /// Defaults:
 ///
