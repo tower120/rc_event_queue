@@ -6,14 +6,11 @@ use crate::event_reader::iter::Iter;
 use std::mem::ManuallyDrop;
 
 pub struct ArcEventReader<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
-    // TODO: Align!
     event_queue : Pin<Arc<EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>>,
     event_reader: ManuallyDrop<EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>>,
 }
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> ArcEventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
-
-    #[inline(always)]
     pub fn new(event: Pin<Arc<EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>>) -> Self{
         Self{
             event_reader: ManuallyDrop::new(EventReader::new(event.as_ref())),
@@ -27,7 +24,6 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> ArcEventReader<T, CHU
         }
     }
 
-    #[inline(always)]
     pub fn iter(&mut self) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
         unsafe{
             self.event_reader.iter_unchecked(self.event_queue.as_ref())

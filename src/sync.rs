@@ -1,7 +1,7 @@
 #[cfg(loom)]
 pub(crate) use loom::thread;
 #[cfg(loom)]
-pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicBool, Ordering};
+pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicU32, AtomicBool, Ordering};
 #[cfg(loom)]
 pub(crate) use loom::sync::Arc;
 
@@ -31,7 +31,7 @@ pub(crate) type SpinMutexGuard<'a, T> = MutexGuard<'a, T>;
 #[cfg(not(loom))]
 pub(crate) use std::thread;
 #[cfg(not(loom))]
-pub(crate) use std::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicBool, Ordering};
+pub(crate) use std::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicU32, AtomicBool, Ordering};
 #[cfg(not(loom))]
 pub(crate) use std::sync::Arc;
 #[cfg(not(loom))]

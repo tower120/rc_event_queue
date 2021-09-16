@@ -11,7 +11,7 @@
 //! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
 //!
 
-use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
+use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64, AtomicU32};
 use crate::sync::{Mutex, MutexGuard, Arc};
 use crate::sync::{SpinMutex, SpinMutexGuard};
 
@@ -30,6 +30,11 @@ use crate::event_queue::chunk::Chunk;
 use crate::event_queue::list::List;
 use crate::event_reader::event_reader::EventReader;
 
+
+// TODO: if this is not safe with dyn linkage - change to random id
+static EVENT_QUEUE_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+
 /// Defaults:
 ///
 /// CHUNK_SIZE = 512
@@ -39,7 +44,10 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
+    // TODO: Try change to AtomicU32
     pub(crate) readers: AtomicUsize,
+
+    pub(crate) id: u32,
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
@@ -55,9 +63,12 @@ unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Even
 impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
     pub fn new() -> Self {
+        let id = EVENT_QUEUE_COUNTER.fetch_add(1, Ordering::AcqRel);
+
         let node = Chunk::<T, CHUNK_SIZE>::new(0, 0);
         let node_ptr = Box::into_raw(node);
         Self{
+            id,
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
@@ -155,7 +166,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let mut event_reader = EventReader{
             position: Cursor{chunk: list.first, index: 0},
             start_position_epoch: epoch,
-            //event_queue_id: 0
+            event_queue_id: self.id
         };
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.

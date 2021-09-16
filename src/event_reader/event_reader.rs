@@ -15,11 +15,13 @@ use crate::event_reader::iter::Iter;
 use std::pin::Pin;
 use std::marker::PhantomData;
 
+// align 32 works best according to benchmarks
+#[repr(align(32))]
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
     pub(crate) position: Cursor<T, CHUNK_SIZE>,
     pub(crate) start_position_epoch: u32,
-    //pub(crate) event_queue_id: u32,
+    pub(crate) event_queue_id: u32,
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{}
@@ -119,6 +121,13 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     ///
     // This is basically the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
+    pub fn update_position(&mut self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) {
+        assert!(self.event_queue_id == event.id, "Wrong EventQueue used for EventReader!");
+        unsafe{
+            self.update_position(event);
+        }
+    }
+
     pub unsafe fn update_position_unchecked(&mut self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) {
         self.get_chunk_len_and_update_start_position( &*event, unsafe{&*self.position.chunk});
     }
@@ -126,13 +135,32 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
+    pub fn iter<'a>(&'a mut self, event: Pin<&'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
+        assert!(self.event_queue_id == event.id, "Wrong EventQueue used for EventReader!");
+        unsafe{
+            self.iter_unchecked(event)
+        }
+    }
+
     pub unsafe fn iter_unchecked<'a>(&'a mut self, event: Pin<&'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
         Iter::new(self, event.get_ref())
+    }
+
+    pub fn unsubscribe(self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>){
+        assert!(self.event_queue_id == event.id, "Wrong EventQueue used for EventReader!");
+        unsafe {
+            self.unsubscribe_unchecked(event);
+        }
     }
 
     pub unsafe fn unsubscribe_unchecked(self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>){
         event.unsubscribe(&self);
         std::mem::forget(self);
+    }
+
+    /// Returns true, if this is the event, that reader listens to.
+    pub fn event_match(&self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) -> bool {
+        self.event_queue_id == event.id
     }
 }
 

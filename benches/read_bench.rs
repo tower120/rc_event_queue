@@ -4,14 +4,14 @@ use std::collections::VecDeque;
 use rc_event_queue::event_queue::event_queue::EventQueue;
 use rc_event_queue::arc_event_reader::ArcEventReader;
 
-const queue_size : usize = 100000;
+const QUEUE_SIZE: usize = 100000;
 
 fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = EventQueue::<usize, 512, false>::pin();
         let mut reader = ArcEventReader::new(event.clone());
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             event.push(i);
         }
 
@@ -40,7 +40,7 @@ fn bench_event_reader_whole(iters: u64) -> Duration{
     for _ in 0..iters {
         let event = EventQueue::<usize, 512, false>::pin();
         let mut reader = ArcEventReader::new(event.clone());
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             event.push(i);
         }
 
@@ -57,7 +57,7 @@ fn bench_vector_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let mut vec = Vec::new();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             vec.push(i);
         }
 
@@ -74,7 +74,7 @@ fn bench_deque_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let mut deque = VecDeque::new();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             deque.push_back(i);
         }
 
