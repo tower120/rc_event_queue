@@ -1,15 +1,16 @@
-use rc_event_queue::event_queue::{EventQueue};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
+use rc_event_queue::event_queue::event_queue::EventQueue;
+use rc_event_queue::arc_event_reader::ArcEventReader;
 
 const queue_size : usize = 100000;
 
 fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
-        let mut reader = event.subscribe();
+        let event = EventQueue::<usize, 512, false>::pin();
+        let mut reader = ArcEventReader::new(event.clone());
         for i in 0..queue_size{
             event.push(i);
         }
@@ -37,8 +38,8 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
 fn bench_event_reader_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
-        let mut reader = event.subscribe();
+        let event = EventQueue::<usize, 512, false>::pin();
+        let mut reader = ArcEventReader::new(event.clone());
         for i in 0..queue_size{
             event.push(i);
         }

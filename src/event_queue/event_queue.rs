@@ -43,7 +43,9 @@ pub struct EventQueue<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>{
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(crate) start_position: SpinMutex<Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(crate) start_position: SpinMutex<Cursor<T, CHUNK_SIZE>>,
+
+    _pinned : PhantomPinned
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{}
@@ -59,7 +61,12 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
+            _pinned : PhantomPinned
         }
+    }
+
+    pub fn pin() -> Pin<Arc<Self>> {
+        Arc::pin(Self::new())
     }
 
     #[inline]
@@ -135,7 +142,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
-    pub fn subscribe(&self) -> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    pub(crate) fn subscribe(&self) -> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
         let list = self.list.lock();
 
         self.readers.fetch_add(1, Ordering::Relaxed);
@@ -147,7 +154,8 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
         let mut event_reader = EventReader{
             position: Cursor{chunk: list.first, index: 0},
-            start_position_epoch: epoch
+            start_position_epoch: epoch,
+            //event_queue_id: 0
         };
 
         // Move to an end. This will increment read_completely_times in all passed chunks correctly.
@@ -218,7 +226,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     fn set_start_position(
         &self,
         list: MutexGuard<List<T, CHUNK_SIZE>>,
-        new_start_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
+        new_start_position: Cursor<T, CHUNK_SIZE>)
     {
         *self.start_position.lock() = new_start_position;
 
@@ -305,7 +313,8 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
         let list = self.list.lock();
-        debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
+        assert!(self.readers.load(Ordering::Relaxed) == 0,
+                "EventQueue dropped with alive Readers!");
         unsafe{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {

@@ -9,7 +9,7 @@ use crate::event_queue::event_queue::EventQueue;
 pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
     where EventReader<T, CHUNK_SIZE, AUTO_CLEANUP> : 'a
 {
-    position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    position: Cursor<T, CHUNK_SIZE>,
     chunk_len : usize,
     event_reader : &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>,
     event : &'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,

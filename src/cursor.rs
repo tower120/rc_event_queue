@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use crate::event_queue::chunk::Chunk;
 
 // TODO: Untested comparison!!
-pub(crate) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
+pub(crate) struct Cursor<T, const CHUNK_SIZE: usize>
 {
     // TODO: try hide
     /// Always valid
@@ -11,31 +11,31 @@ pub(crate) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
     pub index : usize
 }
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Copy for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {}
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Clone for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+impl<T, const CHUNK_SIZE: usize>Copy for Cursor<T, CHUNK_SIZE> {}
+impl<T, const CHUNK_SIZE: usize>Clone for Cursor<T, CHUNK_SIZE> {
     fn clone(&self) -> Self {
         Self{ chunk: self.chunk, index: self.index }
     }
 }
 
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+impl<T, const CHUNK_SIZE: usize> Cursor<T, CHUNK_SIZE> {
     fn chunk_ref(&self) -> &Chunk<T, CHUNK_SIZE>{
         unsafe { &*self.chunk }
     }
 }
 
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialEq for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+impl<T, const CHUNK_SIZE: usize> PartialEq for Cursor<T, CHUNK_SIZE> {
     fn eq(&self, other: &Self) -> bool {
         self.chunk == other.chunk
         && self.index == other.index
     }
 }
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Eq for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+impl<T, const CHUNK_SIZE: usize> Eq for Cursor<T, CHUNK_SIZE>{}
 
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialOrd for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+impl<T, const CHUNK_SIZE: usize> PartialOrd for Cursor<T, CHUNK_SIZE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -54,7 +54,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialOrd for Cursor
         return self.index < other.index;
     }
 }
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Ord for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
+impl<T, const CHUNK_SIZE: usize> Ord for Cursor<T, CHUNK_SIZE> {
     fn cmp(&self, other: &Self) -> Ordering {
         let self_chunk_id  = self.chunk_ref().id;
         let other_chunk_id = other.chunk_ref().id;

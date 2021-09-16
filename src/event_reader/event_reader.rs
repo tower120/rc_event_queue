@@ -12,21 +12,29 @@ use crate::cursor::Cursor;
 use crate::event_queue::event_queue::{foreach_chunk, EventQueue};
 use crate::event_queue::chunk::Chunk;
 use crate::event_reader::iter::Iter;
+use std::pin::Pin;
+use std::marker::PhantomData;
 
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
-    pub(crate) position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub(crate) position: Cursor<T, CHUNK_SIZE>,
     pub(crate) start_position_epoch: u32,
+    //pub(crate) event_queue_id: u32,
 }
 
 unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{}
 
+/// unchecked versions - does not check if provided event is correct one
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
+    pub fn new(event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) -> Self{
+        event.subscribe()
+    }
+
     pub(crate) fn set_forward_position<const TRY_CLEANUP: bool>(
         &mut self,
         event: &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
-        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
+        new_position: Cursor<T, CHUNK_SIZE>)
     {
         debug_assert!(new_position >= self.position);
 
@@ -111,15 +119,20 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     ///
     // This is basically the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
-    // pub fn update_position(&mut self) {
-    //     self.get_chunk_len_and_update_start_position( unsafe{&*self.position.chunk});
-    // }
+    pub unsafe fn update_position_unchecked(&mut self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) {
+        self.get_chunk_len_and_update_start_position( &*event, unsafe{&*self.position.chunk});
+    }
 
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
-    pub fn iter<'a>(&'a mut self, event: &'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
-        Iter::new(self, event)
+    pub unsafe fn iter_unchecked<'a>(&'a mut self, event: Pin<&'a EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
+        Iter::new(self, event.get_ref())
+    }
+
+    pub unsafe fn unsubscribe_unchecked(self, event: Pin<&EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>>){
+        event.unsubscribe(&self);
+        std::mem::forget(self);
     }
 }
 
