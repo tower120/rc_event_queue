@@ -14,12 +14,12 @@ pub struct CapacityError<V>{
 }
 
 pub struct ChunkStorage<T, const CHUNK_SIZE: usize>{
-    storage : [MaybeUninit<T>; CHUNK_SIZE],
-
     /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [EventQueue::clear]
     /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
     /// touching EventQueue and without additional atomic load(acquire)
     len_and_start_position_epoch: AtomicU64,
+
+    storage : [MaybeUninit<T>; CHUNK_SIZE],
 }
 
 unsafe impl<T, const CHUNK_SIZE: usize> Send for ChunkStorage<T, CHUNK_SIZE> {}

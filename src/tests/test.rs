@@ -5,6 +5,7 @@ use std::ops::Range;
 use super::common::*;
 use crate::event_queue::event_queue::EventQueue;
 use crate::event_reader::event_reader::EventReader;
+use crate::arc_event_reader::ArcEventReader;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
@@ -36,10 +37,10 @@ fn push_drop_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
 
-    let mut reader_option : Option<EventReader<_, 4, true>> = Option::None;
+    let mut reader_option : Option<ArcEventReader<_, 4, true>> = Option::None;
     {
-        let chunk_list = EventQueue::<_, 4, true>::new();
-        reader_option = Option::Some(chunk_list.subscribe());
+        let chunk_list = EventQueue::<_, 4, true>::pin();
+        reader_option = Option::Some(ArcEventReader::new(chunk_list.clone()));
 
         chunk_list.push(Data::from(0, on_destroy));
         chunk_list.push(Data::from(1, on_destroy));
@@ -69,8 +70,8 @@ fn read_on_full_chunk_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
     {
-        let chunk_list = EventQueue::<_, 4, true>::new();
-        let mut reader = chunk_list.subscribe();
+        let chunk_list = EventQueue::<_, 4, true>::pin();
+        let mut reader = ArcEventReader::new(chunk_list.clone());
 
         chunk_list.push(Data::from(0, on_destroy));
         chunk_list.push(Data::from(1, on_destroy));
@@ -94,8 +95,8 @@ fn read_on_full_chunk_test() {
 
 #[test]
 fn huge_push_test() {
-    let event = EventQueue::<usize, 4, true>::new();
-    let mut reader = event.subscribe();
+    let event = EventQueue::<usize, 4, true>::pin();
+    let mut reader = ArcEventReader::new(event.clone());
 
     for i in 0..100000{
         event.push(i);
@@ -106,8 +107,8 @@ fn huge_push_test() {
 
 #[test]
 fn extend_test() {
-    let event = EventQueue::<usize, 8, true>::new();
-    let mut reader = event.subscribe();
+    let event = EventQueue::<usize, 8, true>::pin();
+    let mut reader = ArcEventReader::new(event.clone());
 
     let rng : Range<usize> = 0..100000;
 
@@ -119,8 +120,8 @@ fn extend_test() {
 
 #[test]
 fn clean_test() {
-    let event = EventQueue::<usize, 4, true>::new();
-    let mut reader = event.subscribe();
+    let event = EventQueue::<usize, 4, true>::pin();
+    let mut reader = ArcEventReader::new(event.clone());
 
     event.push(0);
     event.push(1);
@@ -158,8 +159,8 @@ fn truncate_front_test1() {
 
 #[test]
 fn truncate_front_test2() {
-    let event = EventQueue::<usize, 4, true>::new();
-    let mut reader = event.subscribe();
+    let event = EventQueue::<usize, 4, true>::pin();
+    let mut reader = ArcEventReader::new(event.clone());
 
     event.extend(0..40);
     assert_eq!(event.chunks_count(), 10);
@@ -208,11 +209,11 @@ for _ in 0..10{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    let event = EventQueue::<[usize;4], 32, false>::new();
+    let event = EventQueue::<[usize;4], 32, false>::pin();
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{
-        readers.push(event.subscribe());
+        readers.push(ArcEventReader::new(event.clone()));
     }
 
     // etalon

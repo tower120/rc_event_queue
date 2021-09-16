@@ -1,13 +1,15 @@
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
 use crate::event_queue::event_queue::EventQueue;
+use crate::event_reader::event_reader::EventReader;
+use crate::arc_event_reader::ArcEventReader;
 
 pub(crate) fn mt_read_test_impl<const CHUNK_SIZE: usize>(threads_count: usize, len: usize) {
-    let event = EventQueue::<usize, CHUNK_SIZE, true>::new();
+    let event = EventQueue::<usize, CHUNK_SIZE, true>::pin();
 
     let mut readers = Vec::new();
     for _ in 0..threads_count{
-        readers.push(event.subscribe());
+        readers.push(ArcEventReader::new(event.clone()));
     }
 
     let mut sum = 0;
