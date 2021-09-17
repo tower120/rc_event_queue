@@ -5,7 +5,7 @@ use std::ops::Range;
 use super::common::*;
 use crate::event_queue::event_queue::EventQueue;
 use crate::event_reader::event_reader::EventReader;
-use crate::arc_event_reader::ArcEventReader;
+use crate::event_reader::ArcEventReader;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
