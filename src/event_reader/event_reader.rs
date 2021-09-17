@@ -16,7 +16,7 @@ use std::pin::Pin;
 use std::marker::PhantomData;
 
 // align 32 works best according to benchmarks
-#[repr(align(32))]
+//#[repr(align(32))]
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
     pub(crate) position: Cursor<T, CHUNK_SIZE>,
