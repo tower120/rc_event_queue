@@ -1,0 +1,28 @@
+This branch should implement SBO for EventQueue. SmallChunk's not implemented yet.
+Should look like this:
+
+type Event = EventQueue<
+    MyMessage,
+    8/*SMALL_CHUNK_SIZE*/,
+    2/*SMALL_CHUNKS_COUNT*/,
+    512/*BIG_CHUNK*/,
+    true/*AUTO_CLEANUP*/
+>;
+
+
+let event = Event::new();
+
+let reader1 = EventReader::new(event);
+let reader2 = EventReader::new(event);
+
+let event = unsafe{Pin::new_unchecked(&event)};
+
+for message in reader1.iter(event){}
+
+
+reader1.unsubscribe(event);
+reader2.unsubscribe(event);
+
+
+All Reader functions now require pinned EventQueue. So you must guarantee that Event will
+not be moved during reader operations. Must be manually unsubscribed.
