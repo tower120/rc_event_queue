@@ -119,8 +119,8 @@ pub fn write_event_benchmark(c: &mut Criterion) {
             &session_size,
             |b, input| b.iter_custom(|iters| { bench_event_extend_session(iters, *input) }));
     }
-    group.bench_function("EventQueue::push", |b|b.iter_custom(|iters| bench_event_push(iters)));
     group.bench_function("EventQueue::extend", |b|b.iter_custom(|iters| bench_event_extend(iters)));
+    group.bench_function("EventQueue::push", |b|b.iter_custom(|iters| bench_event_push(iters)));
     group.bench_function("Vec::push", |b|b.iter_custom(|iters| bench_vector_push(iters)));
     group.bench_function("Vec::extend", |b|b.iter_custom(|iters| bench_vector_extend(iters)));
     group.bench_function("Deque::push", |b|b.iter_custom(|iters| bench_deque_push(iters)));

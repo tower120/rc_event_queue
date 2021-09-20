@@ -20,7 +20,7 @@ use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
 use crate::sync::{Mutex, MutexGuard, Arc};
 use crate::sync::{SpinMutex, SpinMutexGuard};
 
-use crate::chunk::{ChunkStorage, CapacityError};
+//use crate::chunk_storage::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
 use std::cell::UnsafeCell;
@@ -32,8 +32,9 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
+use crate::dynamic_chunk::DynamicChunk;
 
-pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
+/*pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
     /// Just to compare chunks by age/sequence fast. Brings order.
     /// Will overflow after years... So just ignore that possibility.
     pub(super) id      : usize,
@@ -64,11 +65,11 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, 
         })
     }
 }
-
+*/
 
 struct List<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
-    first: *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    last : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    first: *mut DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    last : *mut DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     chunk_id_counter: usize,
 }
 
@@ -97,33 +98,33 @@ unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Sync for Even
 impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>
 {
     pub fn new() -> Pin<Arc<Self>>{
-        let node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(0, 0, null_mut());
-        let node_ptr = Box::into_raw(node);
+        let node = DynamicChunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::construct(
+            0, 0, null_mut(), CHUNK_SIZE);
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: node_ptr, last: node_ptr, chunk_id_counter: 0}),
+            list    : Mutex::new(List{first: node, last: node, chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
-            start_position: SpinMutex::new(Cursor{chunk: node_ptr, index:0}),
+            start_position: SpinMutex::new(Cursor{chunk: node, index:0}),
             _pinned: PhantomPinned,
         });
-        unsafe {(*node_ptr).event = &*this};
+        unsafe{ (*node).set_event(&*this); }
         this
     }
 
     #[inline]
-    fn add_chunk(&self, list: &mut List<T, CHUNK_SIZE, AUTO_CLEANUP>) -> &mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    fn add_chunk(&self, list: &mut List<T, CHUNK_SIZE, AUTO_CLEANUP>) -> &mut DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
         let node = unsafe{&mut *list.last};
-        let epoch = node.storage.len_and_epoch(Ordering::Relaxed).epoch();
+        let epoch = node.len_and_epoch(Ordering::Relaxed).epoch();
 
         // make new node
         list.chunk_id_counter += 1;
-        let new_node = Chunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::new(list.chunk_id_counter, epoch, self);
-        let new_node_ptr = Box::into_raw(new_node);
+        let new_node = DynamicChunk::<T, CHUNK_SIZE, AUTO_CLEANUP>::construct(
+            list.chunk_id_counter, epoch, self, CHUNK_SIZE);
 
         // connect
-        node.next.store(new_node_ptr, Ordering::Release);
-        list.last = new_node_ptr;
+        node.next().store(new_node, Ordering::Release);
+        list.last = new_node;
 
-        unsafe{&mut *new_node_ptr}
+        unsafe{&mut *new_node}
     }
 
     // Leave this for a while. Have feeling that this one should be faster.
@@ -150,10 +151,10 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let mut list = self.list.lock();
         let node = unsafe{&mut *list.last};
 
-        if let Err(err) = node.storage.try_push(value, Ordering::Release){
+        if let Err(err) = node.try_push(value, Ordering::Release){
             unsafe {
                 self.add_chunk(&mut *list)
-                    .storage.push_unchecked(err.value, Ordering::Release);
+                    .push_unchecked(err.value, Ordering::Release);
             }
         }
     }
@@ -168,13 +169,13 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
 
         let mut iter = iter.into_iter();
 
-        while node.storage.extend(&mut iter, Ordering::Release).is_err(){
+        while node.extend(&mut iter, Ordering::Release).is_err(){
             match iter.next() {
                 None => {return;}
                 Some(value) => {
                     // add chunk and push value there
                     node = self.add_chunk(&mut *list);
-                    unsafe{ node.storage.push_unchecked(value, Ordering::Relaxed); }
+                    unsafe{ node.push_unchecked(value, Ordering::Relaxed); }
                 }
             };
         }
@@ -192,7 +193,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         }
 
         let last_chunk = unsafe{&*list.last};
-        let last_chunk_len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
+        let last_chunk_len_and_epoch = last_chunk.len_and_epoch(Ordering::Relaxed);
         let last_chunk_len = last_chunk_len_and_epoch.len();
         let epoch = last_chunk_len_and_epoch.epoch();
 
@@ -221,11 +222,11 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
                 event_reader.position.chunk,
                 |chunk| {
                     debug_assert!(
-                        chunk.storage.len_and_epoch(Ordering::Acquire).len() as usize
+                        chunk.len_and_epoch(Ordering::Acquire).len() as usize
                             ==
-                        chunk.storage.capacity()
+                        chunk.capacity()
                     );
-                    chunk.read_completely_times.fetch_sub(1, Ordering::AcqRel);
+                    chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
                     Continue(())
                 }
             );
@@ -246,15 +247,15 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
                 list.first,
                 list.last,
                 |chunk| {
-                    if chunk.read_completely_times.load(Ordering::Acquire) != readers_count{
+                    if chunk.read_completely_times().load(Ordering::Acquire) != readers_count{
                         return Break(());
                     }
 
-                    let next_chunk_ptr = chunk.next.load(Ordering::Relaxed);
+                    let next_chunk_ptr = chunk.next().load(Ordering::Relaxed);
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
-                    Box::from_raw(list.first);  // drop
+                    DynamicChunk::destruct(list.first);
                     list.first = next_chunk_ptr;
 
                     Continue(())
@@ -278,13 +279,13 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         *self.start_position.lock() = new_start_position;
 
         // update len_and_start_position_epoch in each chunk
-        let new_epoch = unsafe{ (*list.first).storage.len_and_epoch(Ordering::Relaxed).epoch() } + 1;
+        let new_epoch = unsafe{ (*list.first).len_and_epoch(Ordering::Relaxed).epoch() } + 1;
         unsafe {
             foreach_chunk_mut(
                 list.first,
                 null(),
                 |chunk| {
-                    chunk.storage.set_epoch(new_epoch, Ordering::Relaxed, Ordering::Release);
+                    chunk.set_epoch(new_epoch, Ordering::Relaxed, Ordering::Release);
                     Continue(())
                 }
             );
@@ -301,7 +302,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
         let list = self.list.lock();
 
         let last_chunk = unsafe{ &*list.last };
-        let len_and_epoch = last_chunk.storage.len_and_epoch(Ordering::Relaxed);
+        let len_and_epoch = last_chunk.len_and_epoch(Ordering::Relaxed);
 
         self.set_start_position(list, Cursor {
             chunk: last_chunk,
@@ -320,7 +321,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
             return 0;
         }
 
-        let freed_chunks = chunk_id as usize - unsafe{(*list.first).id};
+        let freed_chunks = chunk_id as usize - unsafe{(*list.first).id()};
 
         let mut start_chunk = null();
         unsafe {
@@ -328,7 +329,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
                 list.first,
                 null(),
                 |chunk| {
-                    if chunk.id == chunk_id as usize{
+                    if chunk.id() == chunk_id as usize{
                         start_chunk = chunk;
                         return Break(());
                     }
@@ -349,7 +350,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> EventQueue<T, CHUNK_
     pub fn chunks_count(&self) -> usize {
         let list = self.list.lock();
         unsafe{
-            list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id + 1
+            list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         }
     }
 
@@ -364,8 +365,9 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T
         unsafe{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
-                let node = Box::from_raw(node_ptr);    // destruct on exit
-                node_ptr = node.next.load(Ordering::Relaxed);
+                let node = unsafe{&mut *node_ptr};
+                node_ptr = node.next().load(Ordering::Relaxed);
+                DynamicChunk::destruct(node);
             }
         }
     }
@@ -374,11 +376,11 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventQueue<T
 #[inline(always)]
 pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
-    start_chunk_ptr : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    start_chunk_ptr : *const DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    end_chunk_ptr   : *const DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     mut func : F
 )
-    where F: FnMut(&Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
+    where F: FnMut(&DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
 {
     foreach_chunk_mut(
         start_chunk_ptr as *mut _,
@@ -391,17 +393,17 @@ pub(super) unsafe fn foreach_chunk<T, F, const CHUNK_SIZE : usize, const AUTO_CL
 #[inline(always)]
 pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 (
-    start_chunk_ptr : *mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
-    end_chunk_ptr   : *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    start_chunk_ptr : *mut DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    end_chunk_ptr   : *const DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     mut func : F
 )
-    where F: FnMut(&mut Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
+    where F: FnMut(&mut DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> ControlFlow<()>
 {
     debug_assert!(!start_chunk_ptr.is_null());
     debug_assert!(
         end_chunk_ptr.is_null()
             ||
-        (*start_chunk_ptr).event == (*end_chunk_ptr).event);
+        std::ptr::eq((*start_chunk_ptr).event(), (*end_chunk_ptr).event()));
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){
@@ -411,7 +413,7 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, const CHUNK_SIZE : usize, const AUT
 
         let chunk = &mut *chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
-        let next_chunk_ptr = chunk.next.load(Ordering::Acquire);
+        let next_chunk_ptr = chunk.next().load(Ordering::Acquire);
 
         let proceed = func(chunk);
         if proceed == Break(()) {

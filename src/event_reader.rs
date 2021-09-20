@@ -5,11 +5,12 @@
 
 use crate::sync::Ordering;
 use std::ptr::null_mut;
-use crate::event_queue::{Chunk, EventQueue, foreach_chunk};
+use crate::event_queue::{EventQueue, foreach_chunk};
 use std::ptr;
 use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
 use crate::cursor::Cursor;
+use crate::dynamic_chunk::DynamicChunk;
 
 pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
 {
@@ -30,7 +31,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         let mut need_cleanup = false;
         let readers_count_min_1 =
             if TRY_CLEANUP {
-                let event = unsafe {&*(*new_position.chunk).event};
+                let event = unsafe {&*(*new_position.chunk).event()};
                 // TODO: bench acquire
                 event.readers.load(Ordering::Relaxed) - 1
             } else {
@@ -44,11 +45,11 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
                 new_position.chunk,
                 |chunk| {
                     debug_assert!(
-                        chunk.storage.len_and_epoch(Ordering::Acquire).len() as usize
+                        chunk.len_and_epoch(Ordering::Acquire).len() as usize
                             ==
-                        chunk.storage.capacity()
+                        chunk.capacity()
                     );
-                    let prev_read = chunk.read_completely_times.fetch_add(1, Ordering::AcqRel);
+                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
                     if TRY_CLEANUP {
                         if prev_read >= readers_count_min_1 {
@@ -64,7 +65,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         // Cleanup (optional)
         if TRY_CLEANUP {
             if need_cleanup{
-                let event = unsafe {&*(*new_position.chunk).event};
+                let event = unsafe {(*new_position.chunk).event()};
                 event.cleanup();
             }
         }
@@ -77,15 +78,15 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     #[inline(never)]
     #[cold]
     fn do_update_start_position(&mut self){
-        let event = unsafe{&*(*self.position.chunk).event};
+        let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
             self.set_forward_position::<AUTO_CLEANUP>(new_start_position);
         }
     }
 
-    fn get_chunk_len_and_update_start_position(&mut self, chunk: &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
-        let len_and_epoch = chunk.storage.len_and_epoch(Ordering::Acquire);
+    fn get_chunk_len_and_update_start_position(&mut self, chunk: &DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
+        let len_and_epoch = chunk.len_and_epoch(Ordering::Acquire);
         let len = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
 
@@ -121,7 +122,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
     fn drop(&mut self) {
-        unsafe { (*(*self.position.chunk).event).unsubscribe(self); }
+        unsafe { (*self.position.chunk).event().unsubscribe(self); }
     }
 }
 
@@ -160,7 +161,7 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
             let mut chunk = unsafe{&*self.position.chunk};
 
             // have next chunk?
-            let next_chunk = chunk.next.load(Ordering::Acquire);
+            let next_chunk = chunk.next().load(Ordering::Acquire);
             if next_chunk == null_mut(){
                 return None;
             }
@@ -171,7 +172,7 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
             self.position.chunk = chunk;
             self.position.index = 0;
 
-            self.chunk_len = chunk.storage.len_and_epoch(Ordering::Acquire).len() as usize;
+            self.chunk_len = chunk.len_and_epoch(Ordering::Acquire).len() as usize;
 
             // Maybe 0, when new chunk is created, but item still not pushed.
             // It is possible rework `push`/`extend` in the way that this situation will not exists.
@@ -182,7 +183,7 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
         }
 
         let chunk = unsafe{&*self.position.chunk};
-        let value = unsafe { chunk.storage.get_unchecked(self.position.index) };
+        let value = unsafe { chunk.get_unchecked(self.position.index) };
         self.position.index += 1;
 
         Some(value)

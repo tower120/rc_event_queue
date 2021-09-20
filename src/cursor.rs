@@ -1,12 +1,12 @@
-use crate::event_queue::Chunk;
 use std::cmp::Ordering;
+use crate::dynamic_chunk::DynamicChunk;
 
 // TODO: Untested comparison!!
 pub(super) struct Cursor<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
 {
     // TODO: try hide
     /// Always valid
-    pub chunk: *const Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub chunk: *const DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>,
     /// in-chunk index
     pub index : usize
 }
@@ -20,7 +20,7 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>Clone for Cursor<T, CH
 
 
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
-    fn chunk_ref(&self) -> &Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    fn chunk_ref(&self) -> &DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
         unsafe { &*self.chunk }
     }
 }
@@ -42,8 +42,8 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialOrd for Cursor
 
     // TODO: Is this needed? Benchmark with/without specialized lt comparison
     fn lt(&self, other: &Self) -> bool {
-        let self_chunk_id  = self.chunk_ref().id;
-        let other_chunk_id = other.chunk_ref().id;
+        let self_chunk_id  = self.chunk_ref().id();
+        let other_chunk_id = other.chunk_ref().id();
 
         if self_chunk_id < other_chunk_id{
             return true;
@@ -56,8 +56,8 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> PartialOrd for Cursor
 }
 impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Ord for Cursor<T, CHUNK_SIZE, AUTO_CLEANUP> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let self_chunk_id  = self.chunk_ref().id;
-        let other_chunk_id = other.chunk_ref().id;
+        let self_chunk_id  = self.chunk_ref().id();
+        let other_chunk_id = other.chunk_ref().id();
 
         if self_chunk_id < other_chunk_id {
             return Ordering::Less;
