@@ -5,27 +5,29 @@
 
 use crate::sync::Ordering;
 use std::ptr::null_mut;
-use crate::event_queue::{EventQueue, foreach_chunk};
+use crate::event_queue::{EventQueue, foreach_chunk, Settings};
 use std::ptr;
 use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
 use crate::cursor::Cursor;
 use crate::dynamic_chunk::DynamicChunk;
 
-pub struct EventReader<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>
+pub struct EventReader<T, S: Settings>
 {
-    pub(super) position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub(super) position: Cursor<T, S>,
     pub(super) start_position_epoch: u32,
 }
 
-unsafe impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> Send for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{}
+unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>
+impl<T, S: Settings> EventReader<T, S>
 {
-    pub(super) fn set_forward_position<const TRY_CLEANUP: bool>(
+    #[inline]
+    pub(super) fn set_forward_position(
         &mut self,
-        new_position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>)
-    {
+        new_position: Cursor<T, S>,
+        TRY_CLEANUP: bool
+    ){
         debug_assert!(new_position >= self.position);
 
         let mut need_cleanup = false;
@@ -81,11 +83,11 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position::<AUTO_CLEANUP>(new_start_position);
+            self.set_forward_position(new_start_position, S::AUTO_CLEANUP);
         }
     }
 
-    fn get_chunk_len_and_update_start_position(&mut self, chunk: &DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>) -> usize{
+    fn get_chunk_len_and_update_start_position(&mut self, chunk: &DynamicChunk<T, S>) -> usize{
         let len_and_epoch = chunk.len_and_epoch(Ordering::Acquire);
         let len = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
@@ -114,13 +116,13 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> EventReader<T, CHUNK_
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
-    pub fn iter(&mut self) -> Iter<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    pub fn iter(&mut self) -> Iter<T, S>{
         Iter::new(self)
     }
 }
 
 
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>{
+impl<T, S: Settings> Drop for EventReader<T, S>{
     fn drop(&mut self) {
         unsafe { (*self.position.chunk).event().unsubscribe(self); }
     }
@@ -128,16 +130,16 @@ impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for EventReader<
 
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
-pub struct Iter<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool>
-    where EventReader<T, CHUNK_SIZE, AUTO_CLEANUP> : 'a
+pub struct Iter<'a, T, S: Settings>
+    where EventReader<T, S> : 'a
 {
-    position: Cursor<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    position: Cursor<T, S>,
     chunk_len : usize,
-    event_reader : &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    event_reader : &'a mut EventReader<T, S>,
 }
 
-impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
-    fn new(event_reader: &'a mut EventReader<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Self{
+impl<'a, T, S: Settings> Iter<'a, T, S>{
+    fn new(event_reader: &'a mut EventReader<T, S>) -> Self{
         let chunk = unsafe{&*event_reader.position.chunk};
         let chunk_len = event_reader.get_chunk_len_and_update_start_position(chunk);
         Self{
@@ -148,17 +150,17 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iter<'a, T, CHUNK
     }
 }
 
-impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
+impl<'a, T, S: Settings> Iterator for Iter<'a, T, S>{
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         if /*unlikely*/ self.position.index == self.chunk_len {
+            let mut chunk = unsafe{&*self.position.chunk};
+
             // should try next chunk?
-            if self.position.index != CHUNK_SIZE{
+            if self.position.index != chunk.capacity(){
                 return None;
             }
-
-            let mut chunk = unsafe{&*self.position.chunk};
 
             // have next chunk?
             let next_chunk = chunk.next().load(Ordering::Acquire);
@@ -190,8 +192,8 @@ impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Iterator for Iter
     }
 }
 
-impl<'a, T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Drop for Iter<'a, T, CHUNK_SIZE, AUTO_CLEANUP>{
+impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position::<AUTO_CLEANUP>(self.position);
+        self.event_reader.set_forward_position(self.position, S::AUTO_CLEANUP);
     }
 }

@@ -1,6 +1,6 @@
 use crate::dynamic_array::DynamicArray;
 use crate::sync::{Ordering, AtomicPtr, AtomicUsize, AtomicU64};
-use crate::event_queue::EventQueue;
+use crate::event_queue::{EventQueue, Settings};
 use std::mem::MaybeUninit;
 use std::ptr::{null, null_mut};
 use crate::len_and_epoch::LenAndEpoch;
@@ -11,11 +11,11 @@ pub struct CapacityError<V>{
     pub value: V,
 }
 
-struct Header<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
+struct Header<T, S: Settings>{
     /// Just to compare chunks by age/sequence fast. Brings order.
     /// Will overflow after years... So just ignore that possibility.
     pub(super) id      : usize,
-    pub(super) next    : AtomicPtr<DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>>,
+    pub(super) next    : AtomicPtr<DynamicChunk<T, S>>,
 
     /// When == readers count, it is safe to delete this chunk.
     /// Chunk read completely if reader consumed CHUNK_SIZE'ed element.
@@ -24,7 +24,7 @@ struct Header<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 
     // This needed to access Event from EventReader.
     // Never changes.
-    pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
+    pub(super) event : *const EventQueue<T, S>,
 
     /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [EventQueue::clear]
     /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
@@ -33,11 +33,11 @@ struct Header<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
 }
 
 #[repr(transparent)]
-pub struct DynamicChunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>(
-    DynamicArray< Header<T, CHUNK_SIZE, AUTO_CLEANUP>, T >
+pub struct DynamicChunk<T, S: Settings>(
+    DynamicArray< Header<T, S>, T >
 );
 
-impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUNK_SIZE, AUTO_CLEANUP>{
+impl<T, S: Settings> DynamicChunk<T, S>{
     #[inline]
     pub fn id(&self) -> usize{
         self.0.header().id
@@ -54,12 +54,12 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUN
     }
 
     #[inline]
-    pub fn event(&self) -> &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>{
+    pub fn event(&self) -> &EventQueue<T, S>{
         unsafe { &*self.0.header().event }
     }
 
     #[inline]
-    pub fn set_event(&mut self, event: &EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) {
+    pub fn set_event(&mut self, event: &EventQueue<T, S>) {
         self.0.header_mut().event = event;
     }
 
@@ -69,7 +69,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUN
     pub fn construct(
         id: usize,
         epoch: u32,
-        event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
+        event : *const EventQueue<T, S>,
         len: usize
     ) -> *mut Self{
         let header = Header{
@@ -80,7 +80,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUN
             len_and_start_position_epoch: AtomicU64::new(LenAndEpoch::new(0, epoch).into())
         };
         unsafe{
-            let this = DynamicArray::<Header<T, CHUNK_SIZE, AUTO_CLEANUP>, T>::construct_uninit(
+            let this = DynamicArray::<Header<T, S>, T>::construct_uninit(
                 header,
                 len
             );
@@ -128,7 +128,7 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUN
 
     #[inline(always)]
     pub unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
-        debug_assert!((index as usize) < CHUNK_SIZE);
+        debug_assert!((index as usize) < self.capacity());
 
         self.0.write_at(index as usize, value);
 
@@ -203,8 +203,8 @@ impl<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool> DynamicChunk<T, CHUN
             }
         }
 
-        DynamicArray::<Header<T, CHUNK_SIZE, AUTO_CLEANUP>, T>::destruct_uninit(
-            this as *mut DynamicArray<Header<T, CHUNK_SIZE, AUTO_CLEANUP>, T>
+        DynamicArray::<Header<T, S>, T>::destruct_uninit(
+            this as *mut DynamicArray<Header<T, S>, T>
         )
     }
 }

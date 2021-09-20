@@ -1,16 +1,22 @@
-use rc_event_queue::event_queue::{EventQueue};
+use rc_event_queue::event_queue::{EventQueue, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
 
-const queue_size : usize = 100000;
+const QUEUE_SIZE: usize = 100000;
+
+struct EventQueueSettings{}
+impl Settings for EventQueueSettings{
+    const CHUNK_SIZE: usize = 512;
+    const AUTO_CLEANUP: bool = false;
+}
 
 fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = EventQueue::<usize, EventQueueSettings>::new();
         let mut reader = event.subscribe();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             event.push(i);
         }
 
@@ -37,9 +43,9 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
 fn bench_event_reader_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = EventQueue::<usize, EventQueueSettings>::new();
         let mut reader = event.subscribe();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             event.push(i);
         }
 
@@ -56,7 +62,7 @@ fn bench_vector_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let mut vec = Vec::new();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             vec.push(i);
         }
 
@@ -73,7 +79,7 @@ fn bench_deque_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let mut deque = VecDeque::new();
-        for i in 0..queue_size{
+        for i in 0..QUEUE_SIZE {
             deque.push_back(i);
         }
 
