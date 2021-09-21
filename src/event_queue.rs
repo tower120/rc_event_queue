@@ -109,15 +109,23 @@ unsafe impl<T, S: Settings> Sync for EventQueue<T, S>{}
 impl<T, S: Settings> EventQueue<T, S>
 {
     pub fn new() -> Pin<Arc<Self>>{
-        let node = DynamicChunk::<T, S>::construct(
-            0, 0, null_mut(), S::CHUNK_SIZE);
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: node, last: node, chunk_id_counter: 0}),
+            list    : Mutex::new(List{first: null_mut(), last: null_mut(), chunk_id_counter: 0}),
             readers : AtomicUsize::new(0),
-            start_position: SpinMutex::new(Cursor{chunk: node, index:0}),
+            start_position: SpinMutex::new(Cursor{chunk: null(), index:0}),
             _pinned: PhantomPinned,
         });
-        unsafe{ (*node).set_event(&*this); }
+
+        let node = DynamicChunk::<T, S>::construct(
+            0, 0, &*this, S::CHUNK_SIZE);
+
+        unsafe {
+            let event = &mut *(&*this as *const _ as *mut EventQueue<T, S>);
+            event.list.get_mut().first = node;
+            event.list.get_mut().last  = node;
+            event.start_position.get_mut().chunk = node;
+        }
+
         this
     }
 

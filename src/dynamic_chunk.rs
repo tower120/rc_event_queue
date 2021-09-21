@@ -58,11 +58,6 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         unsafe { &*self.0.header().event }
     }
 
-    #[inline]
-    pub fn set_event(&mut self, event: &EventQueue<T, S>) {
-        self.0.header_mut().event = event;
-    }
-
 // ----------------------------------------------------------------
 //                      STORAGE
 // ----------------------------------------------------------------

@@ -11,6 +11,7 @@ use std::ops::ControlFlow::{Continue, Break};
 use crate::utils::U32Pair;
 use crate::cursor::Cursor;
 use crate::dynamic_chunk::DynamicChunk;
+use std::mem::MaybeUninit;
 
 pub struct EventReader<T, S: Settings>
 {
@@ -26,7 +27,7 @@ impl<T, S: Settings> EventReader<T, S>
     pub(super) fn set_forward_position(
         &mut self,
         new_position: Cursor<T, S>,
-        TRY_CLEANUP: bool
+        TRY_CLEANUP: bool   /*should be generic*/
     ){
         debug_assert!(new_position >= self.position);
 
@@ -37,7 +38,7 @@ impl<T, S: Settings> EventReader<T, S>
                 // TODO: bench acquire
                 event.readers.load(Ordering::Relaxed) - 1
             } else {
-                0
+                unsafe { MaybeUninit::uninit().assume_init() }
             };
 
         // 1. Mark passed chunks as read
