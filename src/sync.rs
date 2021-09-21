@@ -10,12 +10,20 @@ pub(crate) use loom::sync::Arc;
 pub(crate) struct Mutex<T>(loom::sync::Mutex<T>);
 #[cfg(loom)]
 impl<T> Mutex<T>{
-    pub(crate) fn new(data: T) -> Self {
+    pub fn new(data: T) -> Self {
         Self(loom::sync::Mutex::new(data))
     }
 
-    pub(crate) fn lock(&self) -> MutexGuard<'_, T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         self.0.lock().unwrap()
+    }
+
+    pub fn get_mut(&mut self) -> &mut T {
+        // There is no way to get without lock in loom
+        unsafe{
+            use std::ops::DerefMut;
+            &mut *(self.0.lock().unwrap().deref_mut() as *mut T)
+        }
     }
 }
 #[cfg(loom)]

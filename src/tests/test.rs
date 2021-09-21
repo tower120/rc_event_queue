@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue};
+use crate::event_queue::{EventQueue, Settings};
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
@@ -35,10 +35,15 @@ fn push_drop_test() {
     let destruct_counter_ref = &destruct_counter;
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
 
-    let mut reader_option : Option<EventReader<_, 4, true>> = Option::None;
+    let mut reader_option : Option<EventReader<_, S>> = Option::None;
     {
-        let chunk_list = EventQueue::<_, 4, true>::new();
+        let chunk_list = EventQueue::<_, S>::new();
         reader_option = Option::Some(chunk_list.subscribe());
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -69,7 +74,13 @@ fn read_on_full_chunk_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
     {
-        let chunk_list = EventQueue::<_, 4, true>::new();
+        struct S{};
+        impl Settings for S{
+            const CHUNK_SIZE: usize = 4;
+            const AUTO_CLEANUP: bool = true;
+        };
+
+        let chunk_list = EventQueue::<_, S>::new();
         let mut reader = chunk_list.subscribe();
 
         chunk_list.push(Data::from(0, on_destroy));
@@ -94,7 +105,13 @@ fn read_on_full_chunk_test() {
 
 #[test]
 fn huge_push_test() {
-    let event = EventQueue::<usize, 4, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
 
     for i in 0..100000{
@@ -106,7 +123,13 @@ fn huge_push_test() {
 
 #[test]
 fn extend_test() {
-    let event = EventQueue::<usize, 8, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 8;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
 
     let rng : Range<usize> = 0..100000;
@@ -119,7 +142,13 @@ fn extend_test() {
 
 #[test]
 fn clean_test() {
-    let event = EventQueue::<usize, 4, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
 
     event.push(0);
@@ -140,7 +169,13 @@ fn clean_test() {
 
 #[test]
 fn truncate_front_test1() {
-    let event = EventQueue::<usize, 4, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
 
     event.extend(0..3);
 
@@ -158,7 +193,13 @@ fn truncate_front_test1() {
 
 #[test]
 fn truncate_front_test2() {
-    let event = EventQueue::<usize, 4, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
 
     event.extend(0..40);
@@ -177,7 +218,13 @@ fn truncate_front_test2() {
 
 #[test]
 fn chunks_count_test() {
-    let event = EventQueue::<usize, 4, true>::new();
+    struct S{};
+    impl Settings for S{
+        const CHUNK_SIZE: usize = 4;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<usize, S>::new();
 
     assert_eq!(event.chunks_count(), 1);
     event.push(0);
@@ -198,7 +245,11 @@ fn chunks_count_test() {
 #[test]
 fn mt_read_test() {
     for _ in 0..10{
-        mt_read_test_impl::<512>(4, 1000000);
+        struct S{}; impl Settings for S{
+            const CHUNK_SIZE: usize = 512;
+            const AUTO_CLEANUP: bool = true;
+        };
+        mt_read_test_impl::<S>(4, 1000000);
     }
 }
 
@@ -208,7 +259,12 @@ for _ in 0..10{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    let event = EventQueue::<[usize;4], 32, false>::new();
+    struct S{}; impl Settings for S{
+        const CHUNK_SIZE: usize = 32;
+        const AUTO_CLEANUP: bool = true;
+    };
+
+    let event = EventQueue::<[usize;4], S>::new();
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{

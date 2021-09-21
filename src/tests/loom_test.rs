@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue};
+use crate::event_queue::{EventQueue, Settings};
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread, Mutex};
 use itertools::{Itertools, assert_equal};
@@ -8,7 +8,11 @@ use loom::sync::Condvar;
 #[test]
 fn loom_mt_read_test(){
     loom::model(|| {
-        mt_read_test_impl::<4>(3, 7);
+        struct S{}; impl Settings for S{
+            const CHUNK_SIZE: usize = 4;
+            const AUTO_CLEANUP: bool = true;
+        };
+        mt_read_test_impl::<S>(3, 7);
     });
 }
 
@@ -22,8 +26,12 @@ fn loom_mt_write_read_test(){
         let writers_thread_count: usize = 1;    //should be 2 writers, instead of 1, but loom does not support >4 threads
         let readers_thread_count: usize = 2;
 
+        struct S{}; impl Settings for S{
+            const CHUNK_SIZE: usize = 4;
+            const AUTO_CLEANUP: bool = true;
+        };
 
-        let event = EventQueue::<[usize;4], CHUNK_SIZE, false>::new();
+        let event = EventQueue::<[usize;4], S>::new();
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
