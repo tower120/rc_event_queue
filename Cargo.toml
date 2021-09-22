@@ -14,7 +14,7 @@ itertools = "0.10.1"
 criterion = "0.3.3"
 
 [target.'cfg(loom)'.dependencies]
-#loom = "0.5.1"
+#loom = "0.5.2"
 loom = {git = "https://github.com/tokio-rs/loom.git#8e005a3fa1348e3d0e22d11d61a4988a8ae1bdd5"}
 
 [[bench]]
@@ -26,5 +26,9 @@ name = "write_bench"
 harness = false
 
 [[bench]]
-name = "read_write_bench"
+name = "mt_read_bench"
+harness = false
+
+[[bench]]
+name = "mt_read_write_bench"
 harness = false
