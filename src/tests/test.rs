@@ -9,7 +9,7 @@ use super::common::*;
 //#[derive(Clone, Eq, PartialEq, Hash)]
 struct Data<F: FnMut()>{
     id : usize,
-    name: String,
+    _name: String,
     on_destroy: F
 }
 
@@ -17,7 +17,7 @@ impl<F: FnMut()> Data<F>{
     fn from(i:usize, on_destroy: F) -> Self {
         Self{
             id : i,
-            name: i.to_string(),
+            _name: i.to_string(),
             on_destroy: on_destroy
         }
     }
@@ -37,7 +37,8 @@ fn push_drop_test() {
 
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -76,7 +77,8 @@ fn read_on_full_chunk_test() {
     {
         struct S{};
         impl Settings for S{
-            const CHUNK_SIZE: usize = 4;
+            const MIN_CHUNK_SIZE: u32 = 4;
+            const MAX_CHUNK_SIZE: u32 = 4;
             const AUTO_CLEANUP: bool = true;
         };
 
@@ -107,7 +109,8 @@ fn read_on_full_chunk_test() {
 fn huge_push_test() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -125,7 +128,8 @@ fn huge_push_test() {
 fn extend_test() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 8;
+        const MIN_CHUNK_SIZE: u32 = 8;
+        const MAX_CHUNK_SIZE: u32 = 8;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -144,7 +148,8 @@ fn extend_test() {
 fn clean_test() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -171,7 +176,8 @@ fn clean_test() {
 fn truncate_front_test1() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -195,7 +201,8 @@ fn truncate_front_test1() {
 fn truncate_front_test2() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -220,7 +227,8 @@ fn truncate_front_test2() {
 fn chunks_count_test() {
     struct S{};
     impl Settings for S{
-        const CHUNK_SIZE: usize = 4;
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
     };
 
@@ -246,7 +254,8 @@ fn chunks_count_test() {
 fn mt_read_test() {
     for _ in 0..10{
         struct S{}; impl Settings for S{
-            const CHUNK_SIZE: usize = 512;
+            const MIN_CHUNK_SIZE: u32 = 512;
+            const MAX_CHUNK_SIZE: u32 = 512;
             const AUTO_CLEANUP: bool = true;
         };
         mt_read_test_impl::<S>(4, 1000000);
@@ -260,7 +269,8 @@ for _ in 0..10{
     let writers_thread_count = 2;
     let readers_thread_count = 4;
     struct S{}; impl Settings for S{
-        const CHUNK_SIZE: usize = 32;
+        const MIN_CHUNK_SIZE: u32 = 32;
+        const MAX_CHUNK_SIZE: u32 = 32;
         const AUTO_CLEANUP: bool = true;
     };
 
