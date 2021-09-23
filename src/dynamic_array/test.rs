@@ -23,7 +23,7 @@ impl Drop for Data{
 
 #[test]
 fn uninit_test(){
-    let mut fla = unsafe {
+    let fla = unsafe {
         &mut *DynamicArray::<Header, Data>::construct_uninit(
             Header { i: 100 },
             8
@@ -35,6 +35,7 @@ fn uninit_test(){
     let mut array = fla.slice_mut();
     assert_eq!(array.len(), 8);
     assert_eq!(array[1].i, 800);
+    assert_eq!(fla.header.i, 100);
 
     unsafe{ DynamicArray::destruct_uninit(fla); }
 }
@@ -54,6 +55,7 @@ fn default_test(){
         array[1] = Data{i : 800};
     }
 
+    assert_eq!(fla.header.i, 100);
     assert_equal(fla.slice().iter().map(|data|data.i), [0, 800, 0, 0]);
     unsafe{ DynamicArray::destruct(fla); }
 }

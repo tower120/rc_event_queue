@@ -48,9 +48,7 @@ impl<T, S: Settings> EventReader<T, S>
                 new_position.chunk,
                 |chunk| {
                     debug_assert!(
-                        chunk.len_and_epoch(Ordering::Acquire).len() as usize
-                            ==
-                        chunk.capacity()
+                        !chunk.next().load(Ordering::Acquire).is_null()
                     );
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
@@ -158,10 +156,11 @@ impl<'a, T, S: Settings> Iterator for Iter<'a, T, S>{
         if /*unlikely*/ self.position.index == self.chunk_len {
             let mut chunk = unsafe{&*self.position.chunk};
 
+            // TODO: store have_next bit in len_and_epoch. And probe here
             // should try next chunk?
-            if self.position.index != chunk.capacity(){
-                return None;
-            }
+            // if self.position.index != chunk.capacity(){
+            //     return None;
+            // }
 
             // have next chunk?
             let next_chunk = chunk.next().load(Ordering::Acquire);

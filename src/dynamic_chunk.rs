@@ -220,7 +220,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         if std::mem::needs_drop::<T>() {
             let len = (*this).len_and_epoch(Ordering::Acquire).len() as usize;
             for i in 0..len {
-                 unsafe{ ptr::drop_in_place((*this).0.slice_mut().get_unchecked_mut(i)); }
+                 ptr::drop_in_place((*this).0.slice_mut().get_unchecked_mut(i));
             }
         }
         DynamicChunkRecycled {chunk: NonNull::new_unchecked(this)}

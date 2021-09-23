@@ -35,12 +35,11 @@ fn push_drop_test() {
     let destruct_counter_ref = &destruct_counter;
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let mut reader_option : Option<EventReader<_, S>> = Option::None;
     {
@@ -75,12 +74,11 @@ fn read_on_full_chunk_test() {
     let on_destroy = ||{destruct_counter_ref.fetch_add(1, Ordering::Relaxed);};
 
     {
-        struct S{};
-        impl Settings for S{
+        struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 4;
             const MAX_CHUNK_SIZE: u32 = 4;
             const AUTO_CLEANUP: bool = true;
-        };
+        }
 
         let chunk_list = EventQueue::<_, S>::new();
         let mut reader = chunk_list.subscribe();
@@ -107,12 +105,11 @@ fn read_on_full_chunk_test() {
 
 #[test]
 fn huge_push_test() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
@@ -126,12 +123,11 @@ fn huge_push_test() {
 
 #[test]
 fn extend_test() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 8;
         const MAX_CHUNK_SIZE: u32 = 8;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
@@ -146,12 +142,11 @@ fn extend_test() {
 
 #[test]
 fn clean_test() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
@@ -174,12 +169,11 @@ fn clean_test() {
 
 #[test]
 fn truncate_front_test1() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
 
@@ -199,12 +193,11 @@ fn truncate_front_test1() {
 
 #[test]
 fn truncate_front_test2() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
@@ -225,12 +218,11 @@ fn truncate_front_test2() {
 
 #[test]
 fn chunks_count_test() {
-    struct S{};
-    impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<usize, S>::new();
 
@@ -253,26 +245,26 @@ fn chunks_count_test() {
 #[test]
 fn mt_read_test() {
     for _ in 0..10{
-        struct S{}; impl Settings for S{
+        struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 512;
             const MAX_CHUNK_SIZE: u32 = 512;
             const AUTO_CLEANUP: bool = true;
-        };
+        }
         mt_read_test_impl::<S>(4, 1000000);
     }
 }
 
 #[test]
 fn mt_write_read_test() {
-for _ in 0..10{
+for _ in 0..100{
     let writer_chunk = 10000;
     let writers_thread_count = 2;
     let readers_thread_count = 4;
-    struct S{}; impl Settings for S{
+    struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 32;
         const MAX_CHUNK_SIZE: u32 = 32;
         const AUTO_CLEANUP: bool = true;
-    };
+    }
 
     let event = EventQueue::<[usize;4], S>::new();
 

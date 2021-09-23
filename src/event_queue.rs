@@ -55,10 +55,6 @@ struct List<T, S: Settings>{
     /// 0 - means no penult
     penult_chunk_size: u32,
 
-    /// 0 - means no resize request
-    #[cfg(feature = "shrink")]
-    chunk_resize_to: u32,
-
     #[cfg(feature = "double_buffering")]
     /// Biggest free chunk
     free_chunk: Option<DynamicChunkRecycled<T, S>>,
@@ -93,9 +89,6 @@ impl<T, S: Settings> EventQueue<T, S>
 
                 penult_chunk_size : 0,
 
-                #[cfg(feature = "shrink")]
-                chunk_resize_to: 0,
-
                 #[cfg(feature = "double_buffering")]
                 free_chunk: None,
             }),
@@ -118,46 +111,23 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     #[inline]
-    fn add_chunk(&self, list: &mut List<T, S>) -> &mut DynamicChunk<T, S>{
+    fn add_chunk_sized(&self, list: &mut List<T, S>, size: usize) -> &mut DynamicChunk<T, S>{
         let node = unsafe{&mut *list.last};
         let epoch = node.len_and_epoch(Ordering::Relaxed).epoch();
-
-        let new_size: usize = {
-            let mut new_size: usize = 0;
-
-            #[cfg(feature = "shrink")]
-            if list.chunk_resize_to != 0{
-                new_size = list.chunk_resize_to as usize;
-                list.chunk_resize_to = 0;
-            }
-
-            if new_size == 0 {
-                // Size pattern 4,4,8,8,16,16
-                new_size =
-                    if list.penult_chunk_size as usize == node.capacity(){
-                        std::cmp::min(node.capacity() * 2, S::MAX_CHUNK_SIZE as usize)
-                    } else {
-                        node.capacity()
-                    }
-            }
-            new_size
-        };
-
 
         // make new node
         list.chunk_id_counter += 1;
 
         #[cfg(not(feature = "double_buffering"))]
-        let new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, new_size);
+        let new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, size);
 
         #[cfg(feature = "double_buffering")]
         let new_node = {
             let mut new_node: *mut DynamicChunk<T, S> = null_mut();
 
             if let Some(recycled_chunk) = &list.free_chunk {
-                debug_assert!(node.capacity() == new_size);
                 // Check if recycled_chunk have sufficient capacity. We never go down in capacity.
-                if recycled_chunk.capacity() >= new_size {
+                if recycled_chunk.capacity() >= size {
                     // unwrap_unchecked()
                     new_node =
                     match list.free_chunk.take() {
@@ -172,7 +142,7 @@ impl<T, S: Settings> EventQueue<T, S>
             }
 
             if new_node.is_null(){
-                new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, new_size);
+                new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, size);
             }
             new_node
         };
@@ -183,6 +153,22 @@ impl<T, S: Settings> EventQueue<T, S>
         list.penult_chunk_size = node.capacity() as u32;
 
         unsafe{&mut *new_node}
+    }
+
+    #[inline]
+    fn add_chunk(&self, list: &mut List<T, S>) -> &mut DynamicChunk<T, S>{
+        let node = unsafe{&mut *list.last};
+
+        // Size pattern 4,4,8,8,16,16
+        let new_size: usize = {
+            if list.penult_chunk_size as usize == node.capacity(){
+                std::cmp::min(node.capacity() * 2, S::MAX_CHUNK_SIZE as usize)
+            } else {
+                node.capacity()
+            }
+        };
+
+        self.add_chunk_sized(list, new_size)
     }
 
     // Leave this for a while. Have feeling that this one should be faster.
@@ -281,9 +267,7 @@ impl<T, S: Settings> EventQueue<T, S>
                 event_reader.position.chunk,
                 |chunk| {
                     debug_assert!(
-                        chunk.len_and_epoch(Ordering::Acquire).len() as usize
-                            ==
-                        chunk.capacity()
+                        !chunk.next().load(Ordering::Acquire).is_null()
                     );
                     chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
                     Continue(())
@@ -303,6 +287,7 @@ impl<T, S: Settings> EventQueue<T, S>
         #[cfg(not(feature = "double_buffering"))]
         {
             DynamicChunk::destruct(chunk);
+            std::mem::drop(list);   // just for use
         }
 
         #[cfg(feature = "double_buffering")]
@@ -429,24 +414,18 @@ impl<T, S: Settings> EventQueue<T, S>
         return freed_chunks;
     }
 
-    #[cfg(feature = "shrink")]
     /// Next chunk capacity will be `new_len`. All next writes will be on new chunk.
     pub fn resize(&self, new_len: u32){
         assert!(S::MIN_CHUNK_SIZE <= new_len && new_len <= S::MAX_CHUNK_SIZE);
 
-        let list = self.list.lock();
-        list.chunk_resize_to = new_len;
+        let mut list = self.list.lock();
 
         #[cfg(feature = "double_buffering")]
-        list.free_chunk = None;
+        {
+            list.free_chunk = None;
+        }
 
-        // TODO set capacity to len - to switch next chunk ASAP
-    }
-
-    #[cfg(feature = "shrink")]
-    /// Next chunk capacity will be `len()`. All next writes will be on new chunk.
-    pub fn resize_to_fit(){
-        todo!()
+        self.add_chunk_sized(&mut *list, new_len as usize);
     }
 
     // TODO: change!

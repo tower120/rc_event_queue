@@ -7,7 +7,6 @@ edition = "2018"
 
 [features]
 double_buffering = []
-shrink = []
 
 [dependencies]
 parking_lot = "0.11.2"
