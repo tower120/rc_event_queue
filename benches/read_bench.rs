@@ -7,7 +7,8 @@ const QUEUE_SIZE: usize = 100000;
 
 struct EventQueueSettings{}
 impl Settings for EventQueueSettings{
-    const CHUNK_SIZE: usize = 512;
+    const MIN_CHUNK_SIZE: u32 = 512;
+    const MAX_CHUNK_SIZE: u32 = 512;
     const AUTO_CLEANUP: bool = false;
 }
 
