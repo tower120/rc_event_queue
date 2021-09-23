@@ -2,7 +2,7 @@ use crate::dynamic_array::DynamicArray;
 use crate::sync::{Ordering, AtomicPtr, AtomicUsize, AtomicU64};
 use crate::event_queue::{EventQueue, Settings};
 use std::mem::MaybeUninit;
-use std::ptr::{null, null_mut};
+use std::ptr::{null, null_mut, NonNull};
 use crate::len_and_epoch::LenAndEpoch;
 use std::ptr;
 
@@ -58,9 +58,6 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         unsafe { &*self.0.header().event }
     }
 
-// ----------------------------------------------------------------
-//                      STORAGE
-// ----------------------------------------------------------------
     pub fn construct(
         id: usize,
         epoch: u32,
@@ -85,6 +82,28 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         }
     }
 
+    /// Unsafe - because `this` state is unknown
+    /// Reuse previously stored chunk.
+    /// Should be used in deinitialize -> reinitialize cycle.
+    pub unsafe fn from_recycled(
+        mut recycled: DynamicChunkRecycled<T, S>,
+        id: usize,
+        epoch: u32,
+    ) -> *mut Self {
+        let header = recycled.chunk.as_mut().0.header_mut();
+        header.id = id;
+        header.next = AtomicPtr::new(null_mut());
+        header.read_completely_times = AtomicUsize::new(0);
+        header.len_and_start_position_epoch = AtomicU64::new(LenAndEpoch::new(0, epoch).into());
+
+        let ptr = recycled.chunk.as_ptr();
+            std::mem::forget(recycled);
+        ptr
+    }
+
+// ----------------------------------------------------------------
+//                      STORAGE
+// ----------------------------------------------------------------
     #[inline]
     pub fn set_epoch(&mut self, epoch: u32, load_ordering: Ordering, store_ordering: Ordering){
         let len = self.len_and_epoch(load_ordering).len();
@@ -191,15 +210,40 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     pub unsafe fn destruct(this: *mut Self){
+        std::mem::drop(Self::recycle(this));
+    }
+
+    /// destruct all items. Can be stored for reuse.
+    /// Should be called exactly once before reinitialization.
+    #[must_use]
+    pub unsafe fn recycle(this: *mut Self) -> DynamicChunkRecycled<T, S>{
         if std::mem::needs_drop::<T>() {
             let len = (*this).len_and_epoch(Ordering::Acquire).len() as usize;
             for i in 0..len {
                  unsafe{ ptr::drop_in_place((*this).0.slice_mut().get_unchecked_mut(i)); }
             }
         }
-
-        DynamicArray::<Header<T, S>, T>::destruct_uninit(
-            this as *mut DynamicArray<Header<T, S>, T>
-        )
+        DynamicChunkRecycled {chunk: NonNull::new_unchecked(this)}
     }
 }
+
+#[repr(transparent)]
+pub struct DynamicChunkRecycled<T, S: Settings>{
+    chunk: ptr::NonNull<DynamicChunk<T, S>>
+}
+impl<T, S: Settings> DynamicChunkRecycled<T, S>{
+    #[inline(always)]
+    pub fn capacity(&self) -> usize {
+        unsafe{ self.chunk.as_ref().capacity() }
+    }
+}
+impl<T, S: Settings> Drop for DynamicChunkRecycled<T, S>{
+    fn drop(&mut self) {
+        unsafe {
+            DynamicArray::<Header<T, S>, T>::destruct_uninit(
+                self.chunk.as_ptr() as *mut DynamicArray<Header<T, S>, T>
+            )
+        }
+    }
+}
+

@@ -16,65 +16,34 @@ use std::sync::{MutexGuard, Arc};
 use spin::mutex::SpinMutex;
 */
 
+#[cfg(test)]
+mod test;
+
 use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
 use crate::sync::{Mutex, MutexGuard, Arc};
 use crate::sync::{SpinMutex, SpinMutexGuard};
 
-//use crate::chunk_storage::{ChunkStorage, CapacityError};
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
-use std::cell::UnsafeCell;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
-use crate::utils::U32Pair;
-use crate::cursor;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
+use crate::cursor;
 use crate::cursor::Cursor;
 use crate::len_and_epoch::LenAndEpoch;
-use crate::dynamic_chunk::DynamicChunk;
-
-/*pub(super) struct Chunk<T, const CHUNK_SIZE : usize, const AUTO_CLEANUP: bool>{
-    /// Just to compare chunks by age/sequence fast. Brings order.
-    /// Will overflow after years... So just ignore that possibility.
-    pub(super) id      : usize,
-    pub(super) next    : AtomicPtr<Self>,
-
-    /// When == readers count, it is safe to delete this chunk.
-    /// Chunk read completely if reader consumed CHUNK_SIZE'ed element.
-    /// Last chunk always exists
-    pub(super) read_completely_times : AtomicUsize,
-
-    // This needed to access Event from EventReader.
-    // Never changes.
-    pub(super) event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>,
-
-    // Keep last
-    pub(super) storage : ChunkStorage<T, CHUNK_SIZE>,
-}
-
-impl<T, const CHUNK_SIZE: usize, const AUTO_CLEANUP: bool> Chunk<T, CHUNK_SIZE, AUTO_CLEANUP>
-{
-    fn new(id: usize, epoch: u32, event : *const EventQueue<T, CHUNK_SIZE, AUTO_CLEANUP>) -> Box<Self>{
-        Box::new(Self{
-            id   : id,
-            next : AtomicPtr::new(null_mut()),
-            read_completely_times : AtomicUsize::new(0),
-            event : event,
-            storage : ChunkStorage::new(epoch),
-        })
-    }
-}
-*/
+use crate::dynamic_chunk::{DynamicChunk, DynamicChunkRecycled};
 
 pub trait Settings{
-    const CHUNK_SIZE : usize;
+    const MIN_CHUNK_SIZE : u32;
+    const MAX_CHUNK_SIZE : u32;
     const AUTO_CLEANUP: bool;
 }
 
 pub struct DefaultSettings{}
 impl Settings for DefaultSettings{
-    const CHUNK_SIZE: usize = 512;
+    const MIN_CHUNK_SIZE: u32 = 4;
+    const MAX_CHUNK_SIZE: u32 = u32::MAX / 4;
     const AUTO_CLEANUP: bool = true;
 }
 
@@ -82,22 +51,29 @@ struct List<T, S: Settings>{
     first: *mut DynamicChunk<T, S>,
     last : *mut DynamicChunk<T, S>,
     chunk_id_counter: usize,
+
+    /// 0 - means no penult
+    penult_chunk_size: u32,
+
+    /// 0 - means no resize request
+    #[cfg(feature = "shrink")]
+    chunk_resize_to: u32,
+
+    #[cfg(feature = "double_buffering")]
+    /// Biggest free chunk
+    free_chunk: Option<DynamicChunkRecycled<T, S>>,
 }
 
-/// Defaults:
-///
-/// CHUNK_SIZE = 512
-/// AUTO_CLEANUP = true
-pub struct EventQueue<T, S: Settings>{
+pub struct EventQueue<T, S: Settings = DefaultSettings>{
     list  : Mutex<List<T, S>>,
 
     /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
     /// Mutated under list lock.
-    pub(super) readers: AtomicUsize,
+    pub(crate) readers: AtomicUsize,
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
-    pub(super) start_position: SpinMutex<Cursor<T, S>>,
+    pub(crate) start_position: SpinMutex<Cursor<T, S>>,
 
     _pinned: PhantomPinned,
 }
@@ -110,14 +86,26 @@ impl<T, S: Settings> EventQueue<T, S>
 {
     pub fn new() -> Pin<Arc<Self>>{
         let this = Arc::pin(Self{
-            list    : Mutex::new(List{first: null_mut(), last: null_mut(), chunk_id_counter: 0}),
+            list: Mutex::new(List{
+                first: null_mut(),
+                last: null_mut(),
+                chunk_id_counter: 0,
+
+                penult_chunk_size : 0,
+
+                #[cfg(feature = "shrink")]
+                chunk_resize_to: 0,
+
+                #[cfg(feature = "double_buffering")]
+                free_chunk: None,
+            }),
             readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: null(), index:0}),
             _pinned: PhantomPinned,
         });
 
         let node = DynamicChunk::<T, S>::construct(
-            0, 0, &*this, S::CHUNK_SIZE);
+            0, 0, &*this, S::MIN_CHUNK_SIZE as usize);
 
         unsafe {
             let event = &mut *(&*this as *const _ as *mut EventQueue<T, S>);
@@ -134,14 +122,65 @@ impl<T, S: Settings> EventQueue<T, S>
         let node = unsafe{&mut *list.last};
         let epoch = node.len_and_epoch(Ordering::Relaxed).epoch();
 
+        let new_size: usize = {
+            let mut new_size: usize = 0;
+
+            #[cfg(feature = "shrink")]
+            if list.chunk_resize_to != 0{
+                new_size = list.chunk_resize_to as usize;
+                list.chunk_resize_to = 0;
+            }
+
+            if new_size == 0 {
+                // Size pattern 4,4,8,8,16,16
+                new_size =
+                    if list.penult_chunk_size as usize == node.capacity(){
+                        std::cmp::min(node.capacity() * 2, S::MAX_CHUNK_SIZE as usize)
+                    } else {
+                        node.capacity()
+                    }
+            }
+            new_size
+        };
+
+
         // make new node
         list.chunk_id_counter += 1;
-        let new_node = DynamicChunk::<T, S>::construct(
-            list.chunk_id_counter, epoch, self, S::CHUNK_SIZE);
+
+        #[cfg(not(feature = "double_buffering"))]
+        let new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, new_size);
+
+        #[cfg(feature = "double_buffering")]
+        let new_node = {
+            let mut new_node: *mut DynamicChunk<T, S> = null_mut();
+
+            if let Some(recycled_chunk) = &list.free_chunk {
+                debug_assert!(node.capacity() == new_size);
+                // Check if recycled_chunk have sufficient capacity. We never go down in capacity.
+                if recycled_chunk.capacity() >= new_size {
+                    // unwrap_unchecked()
+                    new_node =
+                    match list.free_chunk.take() {
+                        Some(recycled_chunk) => {
+                            unsafe { DynamicChunk::from_recycled(
+                                recycled_chunk,
+                                list.chunk_id_counter,
+                                epoch) }
+                        }, None => unsafe { std::hint::unreachable_unchecked() },
+                    }
+                }
+            }
+
+            if new_node.is_null(){
+                new_node = DynamicChunk::<T, S>::construct(list.chunk_id_counter, epoch, self, new_size);
+            }
+            new_node
+        };
 
         // connect
         node.next().store(new_node, Ordering::Release);
         list.last = new_node;
+        list.penult_chunk_size = node.capacity() as u32;
 
         unsafe{&mut *new_node}
     }
@@ -260,6 +299,26 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
+    unsafe fn free_chunk(chunk: *mut DynamicChunk<T, S>, list: &mut MutexGuard<List<T, S>>){
+        #[cfg(not(feature = "double_buffering"))]
+        {
+            DynamicChunk::destruct(chunk);
+        }
+
+        #[cfg(feature = "double_buffering")]
+        {
+            if let Some(free_chunk) = &list.free_chunk {
+                if free_chunk.capacity() >= (*chunk).capacity() {
+                    // Discard - recycled chunk bigger then our
+                    DynamicChunk::destruct(chunk);
+                    return;
+                }
+            }
+            // Replace free_chunk with our.
+            list.free_chunk = Some(DynamicChunk::recycle(chunk));
+        }
+    }
+
     fn cleanup_impl(&self, mut list: MutexGuard<List<T, S>>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
@@ -275,12 +334,15 @@ impl<T, S: Settings> EventQueue<T, S>
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
-                    DynamicChunk::destruct(list.first);
+                    Self::free_chunk(list.first, &mut list);
                     list.first = next_chunk_ptr;
 
                     Continue(())
                 }
             );
+        }
+        if list.first == list.last{
+            list.penult_chunk_size = 0;
         }
     }
 
@@ -330,6 +392,7 @@ impl<T, S: Settings> EventQueue<T, S>
         });
     }
 
+    // TODO: change API!
     /// Shortens the `EventQueue`, keeping the last `chunks_count` chunks and dropping the first ones.
     /// At least one chunk always remains.
     /// Returns number of freed chunks
@@ -366,6 +429,27 @@ impl<T, S: Settings> EventQueue<T, S>
         return freed_chunks;
     }
 
+    #[cfg(feature = "shrink")]
+    /// Next chunk capacity will be `new_len`. All next writes will be on new chunk.
+    pub fn resize(&self, new_len: u32){
+        assert!(S::MIN_CHUNK_SIZE <= new_len && new_len <= S::MAX_CHUNK_SIZE);
+
+        let list = self.list.lock();
+        list.chunk_resize_to = new_len;
+
+        #[cfg(feature = "double_buffering")]
+        list.free_chunk = None;
+
+        // TODO set capacity to len - to switch next chunk ASAP
+    }
+
+    #[cfg(feature = "shrink")]
+    /// Next chunk capacity will be `len()`. All next writes will be on new chunk.
+    pub fn resize_to_fit(){
+        todo!()
+    }
+
+    // TODO: change!
     // chunks_count can be atomic. But does that needed?
     pub fn chunks_count(&self) -> usize {
         let list = self.list.lock();
@@ -373,19 +457,16 @@ impl<T, S: Settings> EventQueue<T, S>
             list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         }
     }
-
-    // TODO: reuse chunks (double/triple buffering)
-    // TODO: try non-fixed chunks
 }
 
 impl<T, S: Settings> Drop for EventQueue<T, S>{
     fn drop(&mut self) {
-        let list = self.list.lock();
+        let list = self.list.get_mut();
         debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
         unsafe{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
-                let node = unsafe{&mut *node_ptr};
+                let node = &mut *node_ptr;
                 node_ptr = node.next().load(Ordering::Relaxed);
                 DynamicChunk::destruct(node);
             }

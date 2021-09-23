@@ -5,6 +5,10 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2018"
 
+[features]
+double_buffering = []
+shrink = []
+
 [dependencies]
 parking_lot = "0.11.2"
 spin = "0.9.2"
