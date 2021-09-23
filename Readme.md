@@ -1,6 +1,6 @@
 ## Reader counted event queue
 
-Fast, multi-producer multi-consumer FIFO queue. Lockless read, fast-lock write. 
+Fast, multi-producer multi-consumer FIFO queue. Lockless read, fast-lock write. Writes, does not block reads. 
 
 Have very low CPU+memory overhead. Single-thread read performance close to `VecDeque`. Write performance, using `EventQueue::extend` with >32 items, close to `VecDeque` as well. See benchmarks.
 
