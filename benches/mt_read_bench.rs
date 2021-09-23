@@ -97,6 +97,13 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
             read_bench::<S>(readers_start_offset_step, read_session_size, threads_count)
         });
     };
+
+    // thread count dependency bench
+    test_group(0, 8096, 2);
+    test_group(0, 8096, 4);
+    test_group(0, 8096, 8);
+
+    // read session size dependency bench
     test_group(0, 8, 8);
     test_group(1000, 8, 8);
     test_group(0, 64, 8);

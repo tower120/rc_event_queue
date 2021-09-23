@@ -1,4 +1,4 @@
-use rc_event_queue::event_queue::EventQueue;
+use rc_event_queue::event_queue::{EventQueue, Settings};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -6,9 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::pin::Pin;
 
-const queue_size : usize = 100000;
+const QUEUE_SIZE: usize = 100000;
 
-type Event = EventQueue<usize, 512, false>;
+struct S{} impl Settings for S{
+    const MIN_CHUNK_SIZE: u32 = 512;
+    const MAX_CHUNK_SIZE: u32 = 512;
+    const AUTO_CLEANUP: bool = false;
+}
+type Event = EventQueue<usize, S>;
 type ArcEvent = Pin<Arc<Event>>;
 
 
@@ -32,7 +37,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
         // write
         let mut writer_threads = Vec::new();
-        let writer_chunk = queue_size / writers_thread_count;
+        let writer_chunk = QUEUE_SIZE / writers_thread_count;
         for thread_id in 0..writers_thread_count{
             let event = event.clone();
             let writer_fn = writer_fn.clone();
