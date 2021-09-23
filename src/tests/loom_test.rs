@@ -8,10 +8,11 @@ use loom::sync::Condvar;
 #[test]
 fn loom_mt_read_test(){
     loom::model(|| {
-        struct S{}; impl Settings for S{
-            const CHUNK_SIZE: usize = 4;
+        struct S{} impl Settings for S{
+            const MIN_CHUNK_SIZE: u32 = 4;
+            const MAX_CHUNK_SIZE: u32 = 4;
             const AUTO_CLEANUP: bool = true;
-        };
+        }
         mt_read_test_impl::<S>(3, 7);
     });
 }
@@ -21,15 +22,15 @@ fn loom_mt_write_read_test(){
     // Use Condvar, instead of AtomicBool flag.
     // Not the same, but at least loom can handle it.
     loom::model(|| {
-        const CHUNK_SIZE: usize = 2;
         let writer_chunk: usize = 3;
         let writers_thread_count: usize = 1;    //should be 2 writers, instead of 1, but loom does not support >4 threads
         let readers_thread_count: usize = 2;
 
-        struct S{}; impl Settings for S{
-            const CHUNK_SIZE: usize = 4;
+        struct S{} impl Settings for S{
+            const MIN_CHUNK_SIZE: u32 = 4;
+            const MAX_CHUNK_SIZE: u32 = 4;
             const AUTO_CLEANUP: bool = true;
-        };
+        }
 
         let event = EventQueue::<[usize;4], S>::new();
 

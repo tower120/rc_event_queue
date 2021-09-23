@@ -168,6 +168,11 @@ impl<'a, T, S: Settings> Iterator for Iter<'a, T, S>{
                 return None;
             }
 
+            // TODO: have_next bit in len_and_epoch.
+            if chunk.len_and_epoch(Ordering::Acquire).len() as usize != self.chunk_len{
+                return None;
+            }
+
             // switch chunk
             chunk = unsafe{&*next_chunk};
 
