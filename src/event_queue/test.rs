@@ -114,3 +114,15 @@ fn truncate_front_test(){
     event.truncate_front(0);
     assert_equal(reader.iter().copied(), []);
 }
+
+#[test]
+fn capacity_test(){
+    let event = EventQueue::<usize, S>::new();
+    let list = unsafe{ &*(event.list.lock().deref() as *const List<usize, S>) };
+
+    event.extend(0..26);
+    assert_equal(get_chunk_capacities(&*list), [4,4,8,8,16]);
+
+    assert_eq!(event.chunk_capacity(), 16);
+    assert_eq!(event.total_capacity(), get_chunk_capacities(&*list).iter().sum());
+}
