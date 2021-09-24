@@ -56,7 +56,7 @@ struct List<T, S: Settings>{
     penult_chunk_size: u32,
 
     #[cfg(feature = "double_buffering")]
-    /// Biggest free chunk
+    /// Biggest freed chunk
     free_chunk: Option<DynamicChunkRecycled<T, S>>,
 }
 
@@ -258,7 +258,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
     // Called from EventReader Drop
     pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, S>){
-        let list = self.list.lock();
+        let mut list = self.list.lock();
 
         // -1 read_completely_times for each chunk that reader passed
         unsafe {
@@ -276,6 +276,11 @@ impl<T, S: Settings> EventQueue<T, S>
         }
 
         let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
+
+        if S::AUTO_CLEANUP{
+            self.cleanup_impl(&mut list);
+        }
+
         if prev_readers == 1{
             std::mem::drop(list);
             // Safe to self-destruct
@@ -304,7 +309,7 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    fn cleanup_impl(&self, mut list: MutexGuard<List<T, S>>){
+    fn cleanup_impl(&self, list: &mut MutexGuard<List<T, S>>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             foreach_chunk(
@@ -319,7 +324,7 @@ impl<T, S: Settings> EventQueue<T, S>
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
-                    Self::free_chunk(list.first, &mut list);
+                    Self::free_chunk(list.first, list);
                     list.first = next_chunk_ptr;
 
                     Continue(())
@@ -334,13 +339,13 @@ impl<T, S: Settings> EventQueue<T, S>
     /// Free all completely read chunks.
     /// Called automatically with AUTO_CLEANUP = true.
     pub fn cleanup(&self){
-        self.cleanup_impl(self.list.lock());
+        self.cleanup_impl(&mut self.list.lock());
     }
 
     #[inline]
     fn set_start_position(
         &self,
-        list: MutexGuard<List<T, S>>,
+        list: &mut MutexGuard<List<T, S>>,
         new_start_position: Cursor<T, S>)
     {
         *self.start_position.lock() = new_start_position;
@@ -365,77 +370,119 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
+    /// Clear queue for readers. Does not free memory by itself.
+    ///
+    /// This will move all readers on the next read to the "end of the queue", if they did not progress
+    /// further. Where "end of the queue" - is the position at the moment of the `clear` call.
     pub fn clear(&self){
-        let list = self.list.lock();
+        let mut list = self.list.lock();
 
         let last_chunk = unsafe{ &*list.last };
         let len_and_epoch = last_chunk.len_and_epoch(Ordering::Relaxed);
 
-        self.set_start_position(list, Cursor {
+        self.set_start_position(&mut list, Cursor {
             chunk: last_chunk,
             index: len_and_epoch.len() as usize
         });
     }
 
-    // TODO: change API!
-    /// Shortens the `EventQueue`, keeping the last `chunks_count` chunks and dropping the first ones.
-    /// At least one chunk always remains.
-    /// Returns number of freed chunks
-    pub fn truncate_front(&self, chunks_count: usize) -> usize {
-        let list = self.list.lock();
+    /// Shortens the `EventQueue` for readers, keeping the last `len` elements and
+    /// dropping the first ones. Does not free memory by itself.
+    ///
+    /// This will move all readers on the next read to the len-th element from the end, if they did
+    /// not progress further.
+    pub fn truncate_front(&self, len: usize) {
+        let mut list = self.list.lock();
 
-        let chunk_id = list.chunk_id_counter as isize - chunks_count as isize + 1;
-        if chunk_id <= 0{
-            return 0;
-        }
+        // make chunks* array
+        let chunks_count= unsafe {
+            list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
+        };
 
-        let freed_chunks = chunk_id as usize - unsafe{(*list.first).id()};
-
-        let mut start_chunk = null();
+        // there is no way we can have memory enough to hold > 2^64 bytes.
+        debug_assert!(chunks_count<=128);
+        let mut chunks : [*const DynamicChunk<T, S>; 128] = [null(); 128];
         unsafe {
+            let mut i = 0;
             foreach_chunk(
                 list.first,
                 null(),
                 |chunk| {
-                    if chunk.id() == chunk_id as usize{
-                        start_chunk = chunk;
-                        return Break(());
-                    }
+                    chunks[i] = chunk;
+                    i+=1;
                     Continue(())
                 }
             );
         }
 
-        self.set_start_position(list, Cursor {
-            chunk: start_chunk,
-            index: 0
-        });
+        let mut total_len = 0;
+        for i in (0..chunks_count).rev(){
+            let chunk = unsafe{ &*chunks[i] };
+            let chunk_len = chunk.len_and_epoch(Ordering::Relaxed).len() as usize;
+            total_len += chunk_len;
+            if total_len >= len{
+                self.set_start_position(&mut list, Cursor {
+                    chunk: chunks[i],
+                    index: total_len - len
+                });
+                return;
+            }
+        }
 
-        return freed_chunks;
+        // len is bigger then total_len
     }
 
-    /// Next chunk capacity will be `new_len`. All next writes will be on new chunk.
-    pub fn resize(&self, new_len: u32){
+    /// Adds chunk with capacity `new_len`. All next writes will be on new chunk.
+    /// Use this in conjunction with clear/truncate_front, if you want to reduce memory pressure ASAP.
+    /// Total capacity will be temporarily increased, until readers get to the new chunk.
+    pub fn resize_chunk(&self, new_len: u32){
         assert!(S::MIN_CHUNK_SIZE <= new_len && new_len <= S::MAX_CHUNK_SIZE);
 
         let mut list = self.list.lock();
-
         #[cfg(feature = "double_buffering")]
         {
             list.free_chunk = None;
         }
-
         self.add_chunk_sized(&mut *list, new_len as usize);
+
+        if S::AUTO_CLEANUP {
+            if self.readers.load(Ordering::Relaxed) == 0{
+                self.cleanup_impl(&mut list);
+            }
+        }
     }
 
-    // TODO: change!
+    /// Returns total chunks capacity.
+    pub fn total_capacity(&self) -> usize {
+        let list = self.list.lock();
+        let mut total = 0;
+        unsafe {
+            foreach_chunk(
+                list.first,
+                null(),
+                |chunk| {
+                    total += chunk.capacity();
+                    Continue(())
+                }
+            );
+        }
+        total
+    }
+
+    /// last/active chunk capacity
+    pub fn chunk_capacity(&self) -> usize {
+        let list = self.list.lock();
+        unsafe { (*list.last).capacity() }
+    }
+
+/*
     // chunks_count can be atomic. But does that needed?
     pub fn chunks_count(&self) -> usize {
         let list = self.list.lock();
         unsafe{
             list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         }
-    }
+    }*/
 }
 
 impl<T, S: Settings> Drop for EventQueue<T, S>{

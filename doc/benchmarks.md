@@ -17,7 +17,7 @@ sessions - it is x2 slower then `VecDeque`.
 ![](images/st_write_bench.svg)
 
 Write to `EventQueue` is **not** lockless. Hence, `EventQueue::push` is x4 times slower,
-then `Vec::push` (which is already not that bad). To overcome that - `EventQueue` has bulk
+then `Vec::push` (which is not bad already). To overcome that - `EventQueue` has bulk
 insert - `EventQueue::extend`. On long write sessions - it closes to `Vec::extend`. 
 
 ## Thread count read-performance dependency

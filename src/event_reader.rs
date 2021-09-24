@@ -76,40 +76,45 @@ impl<T, S: Settings> EventReader<T, S>
     }
 
     // Have much better performance being non-inline. Occurs rarely.
+    // This is the only reason this code - is a function.
     #[inline(never)]
     #[cold]
-    fn do_update_start_position(&mut self){
+    fn do_update_start_position_and_get_len(&mut self) -> usize /*new len*/{
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
             self.set_forward_position(new_start_position, S::AUTO_CLEANUP);
         }
+
+        // Relaxed, because under lock
+        unsafe{&*self.position.chunk}.len_and_epoch(Ordering::Relaxed).len() as usize
     }
 
-    fn get_chunk_len_and_update_start_position(&mut self, chunk: &DynamicChunk<T, S>) -> usize{
-        let len_and_epoch = chunk.len_and_epoch(Ordering::Acquire);
+    // Returns len of actual self.position.chunk
+    fn update_start_position_and_get_len(&mut self) -> usize{
+        let len_and_epoch = unsafe{&*self.position.chunk}.len_and_epoch(Ordering::Acquire);
         let len = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
 
         if epoch != self.start_position_epoch {
-            self.do_update_start_position();
             self.start_position_epoch = epoch;
+            self.do_update_start_position_and_get_len()
+        } else {
+            len as usize
         }
-        len as usize
     }
 
-
     /// Will move cursor to new start_position if necessary.
-    /// Reader may point to already cleared part of queue, this will move it to the new begin, marking
-    /// all chunks between current and new position as read.
+    /// This will move reader to the new begin, and mark all chunks between current
+    /// and new position "read".
     ///
     /// You need this only if you cleared/cut queue, and now want to force free memory.
-    /// (When all readers mark chunk as read - it will be deleted)
+    /// (When ALL readers mark chunk as read - it will be deleted)
     ///
-    // This is basically the same as just calling `iter()` and drop it.
+    /// Functionally, this is the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
     pub fn update_position(&mut self) {
-        self.get_chunk_len_and_update_start_position( unsafe{&*self.position.chunk});
+        self.update_start_position_and_get_len();
     }
 
     // TODO: copy_iter() ?
@@ -139,8 +144,7 @@ pub struct Iter<'a, T, S: Settings>
 
 impl<'a, T, S: Settings> Iter<'a, T, S>{
     fn new(event_reader: &'a mut EventReader<T, S>) -> Self{
-        let chunk = unsafe{&*event_reader.position.chunk};
-        let chunk_len = event_reader.get_chunk_len_and_update_start_position(chunk);
+        let chunk_len = event_reader.update_start_position_and_get_len();
         Self{
             position: event_reader.position,
             chunk_len : chunk_len,
