@@ -30,6 +30,7 @@ impl<F: FnMut()> Drop for Data<F>{
 }
 
 #[test]
+#[allow(unused_assignments)]
 fn push_drop_test() {
     let destruct_counter = AtomicUsize::new(0);
     let destruct_counter_ref = &destruct_counter;
@@ -41,7 +42,7 @@ fn push_drop_test() {
         const AUTO_CLEANUP: bool = true;
     }
 
-    let mut reader_option : Option<EventReader<_, S>> = Option::None;
+    let mut reader_option : Option<EventReader<_, S>> = None;
     {
         let chunk_list = EventQueue::<_, S>::new();
         reader_option = Option::Some(chunk_list.subscribe());

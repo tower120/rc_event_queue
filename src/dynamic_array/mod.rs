@@ -23,13 +23,15 @@ impl<Header, T> DynamicArray<Header, T>{
         }
     }
 
-    pub fn construct(header: Header, value: impl Borrow<T>, len: usize) -> *mut Self {
+    pub fn construct(header: Header, value: T, len: usize) -> *mut Self {
         unsafe{
             let this = &mut *Self::construct_uninit(header, len);
 
             for item in this.slice_mut(){
                 std::ptr::copy_nonoverlapping(value.borrow(), item, 1);
             }
+
+            std::mem::forget(value);
 
             this
         }
