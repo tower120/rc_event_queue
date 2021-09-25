@@ -1,6 +1,6 @@
 /// This is special benchmark, to measure empty queue test overhead.
 
-use rc_event_queue::event_queue::{EventQueue, Settings};
+use rc_event_queue::mpmc::{EventQueue, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -29,7 +29,7 @@ fn bench_event_reader(iters: u64) -> Duration{
 fn bench_vector(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let mut vec = Vec::<usize>::new();
+        let vec = Vec::<usize>::new();
 
         let start = Instant::now();
         for i in vec.iter(){
@@ -43,7 +43,7 @@ fn bench_vector(iters: u64) -> Duration{
 fn bench_deque(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let mut deque = VecDeque::<usize>::new();
+        let deque = VecDeque::<usize>::new();
 
         let start = Instant::now();
         for i in deque.iter(){

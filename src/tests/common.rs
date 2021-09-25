@@ -1,7 +1,5 @@
 use crate::event_queue::{EventQueue, Settings};
-use crate::event_reader::EventReader;
-use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
-use itertools::{Itertools, assert_equal};
+use crate::sync::{thread};
 
 pub(crate) fn mt_read_test_impl<S: 'static + Settings>(threads_count: usize, len: usize) {
     let event = EventQueue::<usize, S>::new();

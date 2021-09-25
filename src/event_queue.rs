@@ -1,27 +1,9 @@
-//! Event queue. Multi consumers, multi producers.
-//! Lock-free reading (almost as fast as slice read). Push under lock.
-//!
-//! Linked list of fix-sized Chunks.
-//! Each Chunk have "read counter". Whenever "read counter" == "readers",
-//! it is safe to delete that chunk.
-//! "read counter" increases whenever reader reaches end of the chunk.
-//!
-//! [Event] live, until [EventReader]s live.
-//!
-//! In order to completely "free"/"drop" event - drop all associated [EventReader]s.
-//!
-
-/*use std::sync::atomic::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
-use std::sync::{MutexGuard, Arc};
-use spin::mutex::SpinMutex;
-*/
-
 #[cfg(test)]
 mod test;
 
-use crate::sync::{AtomicPtr, Ordering, AtomicUsize, AtomicU64};
+use crate::sync::{Ordering, AtomicUsize};
 use crate::sync::{Mutex, MutexGuard, Arc};
-use crate::sync::{SpinMutex, SpinMutexGuard};
+use crate::sync::{SpinMutex};
 
 use std::ptr::{null_mut, null};
 use crate::event_reader::EventReader;
@@ -29,10 +11,8 @@ use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
 use std::marker::PhantomPinned;
 use std::pin::Pin;
-use crate::cursor;
 use crate::cursor::Cursor;
-use crate::len_and_epoch::LenAndEpoch;
-use crate::dynamic_chunk::{DynamicChunk, DynamicChunkRecycled};
+use crate::dynamic_chunk::{DynamicChunk};
 
 pub trait Settings{
     const MIN_CHUNK_SIZE : u32;
@@ -63,7 +43,7 @@ struct List<T, S: Settings>{
 pub struct EventQueue<T, S: Settings = DefaultSettings>{
     list  : Mutex<List<T, S>>,
 
-    /// All atomic op relaxed. Just to speed up [try_clean] check (opportunistic check).
+    /// All atomic op relaxed. Just to speed up `try_clean` check (opportunistic check).
     /// Mutated under list lock.
     pub(crate) readers: AtomicUsize,
 
@@ -257,7 +237,7 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     // Called from EventReader Drop
-    pub(super) fn unsubscribe(&self, event_reader: &EventReader<T, S>){
+    pub(crate) fn unsubscribe(&self, event_reader: &EventReader<T, S>){
         let mut list = self.list.lock();
 
         // -1 read_completely_times for each chunk that reader passed
@@ -337,7 +317,8 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     /// Free all completely read chunks.
-    /// Called automatically with AUTO_CLEANUP = true.
+    ///
+    /// Called automatically with [Settings::AUTO_CLEANUP] = true.
     pub fn cleanup(&self){
         self.cleanup_impl(&mut self.list.lock());
     }
@@ -370,10 +351,16 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    /// Clear queue for readers. Does not free memory by itself.
+
+    /// "Lazily move" all readers positions to the "end of the queue". From readers perspective,
+    /// equivalent to conventional `clear`.
     ///
-    /// This will move all readers on the next read to the "end of the queue", if they did not progress
-    /// further. Where "end of the queue" - is the position at the moment of the `clear` call.
+    /// Does not free memory by itself - all readers need to be touched to free the memory.
+    ///
+    /// "End of the queue" - is the queue's end position at the moment of the `clear` call.
+    ///
+    /// "Lazy move" - means that reader actually change position and mark passed chunks,
+    /// as "read", only when actual read starts.
     pub fn clear(&self){
         let mut list = self.list.lock();
 
@@ -386,11 +373,15 @@ impl<T, S: Settings> EventQueue<T, S>
         });
     }
 
-    /// Shortens the `EventQueue` for readers, keeping the last `len` elements and
-    /// dropping the first ones. Does not free memory by itself.
+
+
+    /// "Lazily move" all readers positions to the `len`-th element from the end of the queue.
+    /// From readers perspective, equivalent to conventional `truncate` from the other side.
     ///
-    /// This will move all readers on the next read to the len-th element from the end, if they did
-    /// not progress further.
+    /// Does not free memory by itself - all readers need to be touched to free memory.
+    ///
+    /// "Lazy move" - means that reader actually change position and mark passed chunks
+    /// as "read", only when actual read starts.
     pub fn truncate_front(&self, len: usize) {
         let mut list = self.list.lock();
 
@@ -432,18 +423,20 @@ impl<T, S: Settings> EventQueue<T, S>
         // len is bigger then total_len
     }
 
-    /// Adds chunk with capacity `new_len`. All next writes will be on new chunk.
-    /// Use this in conjunction with clear/truncate_front, if you want to reduce memory pressure ASAP.
+    /// Adds chunk with `new_capacity` capacity. All next writes will be on new chunk.
+    ///
+    /// Use this, in conjunction with [clear](Self::clear) / [truncate_front](Self::truncate_front),
+    /// to reduce memory pressure ASAP.
     /// Total capacity will be temporarily increased, until readers get to the new chunk.
-    pub fn resize_chunk(&self, new_len: u32){
-        assert!(S::MIN_CHUNK_SIZE <= new_len && new_len <= S::MAX_CHUNK_SIZE);
+    pub fn change_chunk_capacity(&self, new_capacity: u32){
+        assert!(S::MIN_CHUNK_SIZE <= new_capacity && new_capacity <= S::MAX_CHUNK_SIZE);
 
         let mut list = self.list.lock();
         #[cfg(feature = "double_buffering")]
         {
             list.free_chunk = None;
         }
-        self.add_chunk_sized(&mut *list, new_len as usize);
+        self.add_chunk_sized(&mut *list, new_capacity as usize);
 
         if S::AUTO_CLEANUP {
             if self.readers.load(Ordering::Relaxed) == 0{
@@ -469,7 +462,7 @@ impl<T, S: Settings> EventQueue<T, S>
         total
     }
 
-    /// last/active chunk capacity
+    /// Returns last/active chunk capacity
     pub fn chunk_capacity(&self) -> usize {
         let list = self.list.lock();
         unsafe { (*list.last).capacity() }

@@ -1,7 +1,5 @@
 use crate::event_queue::{EventQueue, Settings};
-use crate::event_reader::EventReader;
-use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread, Mutex};
-use itertools::{Itertools, assert_equal};
+use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;
 

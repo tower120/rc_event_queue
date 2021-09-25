@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, black_box, BenchmarkGroup};
-use rc_event_queue::event_queue::{EventQueue, Settings};
+use rc_event_queue::mpmc::{EventQueue, Settings};
 use std::thread;
 use std::time::{Duration, Instant};
 use criterion::measurement::WallTime;

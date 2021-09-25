@@ -1,8 +1,7 @@
 use crate::dynamic_array::DynamicArray;
 use crate::sync::{Ordering, AtomicPtr, AtomicUsize, AtomicU64};
 use crate::event_queue::{EventQueue, Settings};
-use std::mem::MaybeUninit;
-use std::ptr::{null, null_mut, NonNull};
+use std::ptr::{null_mut, NonNull};
 use crate::len_and_epoch::LenAndEpoch;
 use std::ptr;
 
@@ -78,7 +77,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
             );
 
             // This is ok, due to transparent
-             this as *mut _ as *mut Self
+            this as *mut _ as *mut Self
         }
     }
 

@@ -1,18 +1,24 @@
 use criterion::{Criterion, BenchmarkId, black_box, criterion_main, criterion_group};
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
-use rc_event_queue::event_queue::EventQueue;
+use rc_event_queue::mpmc;
 
 const QUEUE_SIZE: usize = 100000;
 
+struct EventQueueSettings{}
+impl mpmc::Settings for EventQueueSettings{
+    const MIN_CHUNK_SIZE: u32 = 512;
+    const MAX_CHUNK_SIZE: u32 = 512;
+    const AUTO_CLEANUP: bool = false;
+}
+type EventQueue<T> = mpmc::EventQueue<T, EventQueueSettings>;
 
 fn bench_event_extend_session(iters: u64, session_len: usize) -> Duration{
     let mut total = Duration::ZERO;
     let sessions_count = QUEUE_SIZE / session_len;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = EventQueue::<usize>::new();
         let start = Instant::now();
-        let mut vec = Vec::<usize>::new();
 
         for session_id in 0..sessions_count{
             let from = black_box(session_id) * session_len;
@@ -28,7 +34,7 @@ fn bench_event_extend_session(iters: u64, session_len: usize) -> Duration{
 fn bench_event_extend(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = EventQueue::<usize>::new();
         let start = Instant::now();
 
         event.extend(black_box(0..QUEUE_SIZE));
@@ -41,7 +47,7 @@ fn bench_event_extend(iters: u64) -> Duration{
 fn bench_event_push(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
-        let event = EventQueue::<usize, 512, false>::new();
+        let event = EventQueue::<usize>::new();
         let start = Instant::now();
 
         for i in 0..QUEUE_SIZE {

@@ -3,9 +3,7 @@ mod test;
 
 use std::mem;
 use std::alloc::Layout;
-use std::mem::ManuallyDrop;
 use std::borrow::Borrow;
-use std::marker::PhantomData;
 
 #[repr(C)]
 pub struct DynamicArray<Header, T>{

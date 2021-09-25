@@ -5,12 +5,9 @@
 
 use crate::sync::Ordering;
 use std::ptr::null_mut;
-use crate::event_queue::{EventQueue, foreach_chunk, Settings};
-use std::ptr;
-use std::ops::ControlFlow::{Continue, Break};
-use crate::utils::U32Pair;
+use crate::event_queue::{foreach_chunk, Settings};
+use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
-use crate::dynamic_chunk::DynamicChunk;
 use std::mem::MaybeUninit;
 
 pub struct EventReader<T, S: Settings>
@@ -27,13 +24,13 @@ impl<T, S: Settings> EventReader<T, S>
     pub(super) fn set_forward_position(
         &mut self,
         new_position: Cursor<T, S>,
-        TRY_CLEANUP: bool   /*should be generic*/
+        try_cleanup: bool   /*should be generic*/
     ){
         debug_assert!(new_position >= self.position);
 
         let mut need_cleanup = false;
         let readers_count_min_1 =
-            if TRY_CLEANUP {
+            if try_cleanup {
                 let event = unsafe {&*(*new_position.chunk).event()};
                 // TODO: bench acquire
                 event.readers.load(Ordering::Relaxed) - 1
@@ -52,7 +49,7 @@ impl<T, S: Settings> EventReader<T, S>
                     );
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
-                    if TRY_CLEANUP {
+                    if try_cleanup {
                         if prev_read >= readers_count_min_1 {
                             need_cleanup = true;
                         }
@@ -64,7 +61,7 @@ impl<T, S: Settings> EventReader<T, S>
         }
 
         // Cleanup (optional)
-        if TRY_CLEANUP {
+        if try_cleanup {
             if need_cleanup{
                 let event = unsafe {(*new_position.chunk).event()};
                 event.cleanup();
@@ -104,9 +101,10 @@ impl<T, S: Settings> EventReader<T, S>
         }
     }
 
-    /// Will move cursor to new start_position if necessary.
-    /// This will move reader to the new begin, and mark all chunks between current
-    /// and new position "read".
+    /// Move cursor to the new position, if necessary.
+    ///
+    /// This will move reader to the new position, and mark all chunks between current
+    /// and new position as "read".
     ///
     /// You need this only if you cleared/cut queue, and now want to force free memory.
     /// (When ALL readers mark chunk as read - it will be deleted)
@@ -120,6 +118,9 @@ impl<T, S: Settings> EventReader<T, S>
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
+    /// This is consuming iterator. Return references.
+    ///
+    /// Read counters of affected chunks updated in [Iter::drop].
     pub fn iter(&mut self) -> Iter<T, S>{
         Iter::new(self)
     }

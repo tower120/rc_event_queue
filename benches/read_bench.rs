@@ -1,4 +1,4 @@
-use rc_event_queue::event_queue::{EventQueue, Settings};
+use rc_event_queue::mpmc::{EventQueue, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -28,7 +28,7 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
             // is the only potentially "heavy" operations
 
             let mut iter = reader.iter();
-            for n in 0..read_session_size {
+            for _ in 0..read_session_size {
                 let next = iter.next();
                 match next{
                     None => {break 'outer;}

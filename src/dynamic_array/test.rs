@@ -1,8 +1,6 @@
 use crate::dynamic_array::DynamicArray;
 use itertools::assert_equal;
-use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Header<F: FnMut(u8)>{
     i : u8,

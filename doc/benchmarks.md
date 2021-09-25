@@ -3,7 +3,10 @@
 i7-4771 (4C/8T; 32Kb I/D L1)
 DDR3-1666
 Windows 10
+rustc 1.5.5 stable
 ```
+
+Data from benchmarks in `/benches`
 
 ## Single thread read performance
 
@@ -22,7 +25,7 @@ insert - `EventQueue::extend`. On long write sessions - it closes to `Vec::exten
 
 ## Thread count read-performance dependency
 
-Performance drop non-linear with linear reader threads grow. At some point it becomes 
+Read performance drop non-linear, with linear threads count grow. At some point it becomes 
 memory-bandwidth bound.
 
 ```

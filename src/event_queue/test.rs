@@ -71,7 +71,7 @@ fn resize_test(){
     event.extend(0..32);
     assert_equal(get_chunk_capacities(&*list), [4,4,8,8,16]);
 
-    event.resize_chunk(6);
+    event.change_chunk_capacity(6);
     assert_equal(get_chunk_capacities(&*list), [4,4,8,8,16,6]);
     assert_equal(get_chunk_lens(&*list), [4,4,8,8,8,0]);
 

@@ -1,4 +1,4 @@
-use rc_event_queue::event_queue::{EventQueue, Settings};
+use rc_event_queue::mpmc::{EventQueue, Settings};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
