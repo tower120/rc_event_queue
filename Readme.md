@@ -1,13 +1,20 @@
 ## Reader counted event queue
 
-Fast, multi-producer multi-consumer / single-producer multi-consumer FIFO queue. Lockless read, locked write. Writes, does not block reads. 
-Consumer oriented. Contiguous memory layout.
+Fast, multi-producer multi-consumer / single-producer multi-consumer FIFO event queue _(or message queue)_. Each reader/consumer
+have its own queue position.
+
+- mpmc - lockless read, locked write.
+- spmc - lockless read, lockless write. WIP. (Should have little to none overhead for writes)
+
+Write operations, never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
 
 Have very low CPU+memory overhead. Single-thread read performance close to `VecDeque`. 
-Write performance, using `EventQueue::extend` with at least 4 items, close to `VecDeque` as well. [See benchmarks](doc/benchmarks.md).
+Write performance (mpmc), using `EventQueue::extend` with at least 4 items, close to `VecDeque` as well. [See benchmarks](doc/benchmarks.md).
 
 [Principle of operation](doc/principal-of-operation.md). Short version - EventQueue does not know where it's readers exactly are. 
-It operates on the chunk basis. Hence - exact lower bound is unkown. 
+It operates on the chunk basis. Hence - lower bound known with chunk precision only.
+
+[API doc](https://docs.rs/rc_event_queue/).
 
 ```rust
 let event = EventQueue::<usize>::new();
@@ -35,13 +42,13 @@ event.push(1000);
 
 assert!(reader.iter().sum() == 1100);
 ```
-This means that any queue-cut operations does not free memory immediately. Readers should be touched for this first.
+Where "soft" - means that any queue-cut operations does not free memory immediately. Readers should be touched for this first.
 
 ### Emergency cut
 
 If any of the readers did not read for a long time - it can retain queue from cleanup.
 This means that queue capacity will grow. On long run systems, you may want to periodically check `total_capacity`, 
-and if its grow too much - you may want to force-cut/clear it.
+and if it grows too much - you may want to force-cut/clear it.
 
 ```rust
 if event.total_capacity() > 100000{
@@ -84,7 +91,7 @@ event.cleanup();   // Free used chunks
 ```
 #### double_buffering
 
-Use `double_buffering` feature. This will reuse chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
+Use `double_buffering` feature. This will reuse biggest chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
 without alloc/dealloc.
 
 ### Soundness

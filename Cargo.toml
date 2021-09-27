@@ -2,11 +2,11 @@
 name = "rc_event_queue"
 authors = ["Andrey Diduh <tower120@gmail.com>"]
 license = "MIT OR Apache-2.0"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2018"
-description = "VecDeque-like fast, unbounded, mpmc/spmc concurent FIFO queue. Lockless reads, write-lock writes."
+description = "VecDeque-like fast, unbounded, mpmc/spmc concurent FIFO event queue. Lockless reads, write-lock writes."
 repository = "https://github.com/tower120/rc_event_queue"
-keywords = ["lock-free", "queue", "mpmc", "spmc"]
+keywords = ["lock-free", "queue", "mpmc", "spmc", "message-queue"]
 categories = ["data-structures", "concurrency"]
 exclude = ["doc"]
 
