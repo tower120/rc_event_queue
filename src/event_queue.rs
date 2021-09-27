@@ -13,6 +13,8 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use crate::cursor::Cursor;
 use crate::dynamic_chunk::{DynamicChunk};
+#[cfg(feature = "double_buffering")]
+use crate::dynamic_chunk::{DynamicChunkRecycled};
 
 pub trait Settings{
     const MIN_CHUNK_SIZE : u32;

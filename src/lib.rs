@@ -1,7 +1,7 @@
 //! Concurrent FIFO queue.
 //! Lock-free reading. Write under lock (for [mpmc] version). Write lock does not block read.
 //!
-//! Linked list of chunks (VecDeque -like). Each chunk have "read counter".
+//! Linked list of chunks (C++ std::deque -like). Each chunk have "read counter".
 //! When "read counter" reach readers count - chunk dropped. Chunk considered read, when
 //! Reader reach its end. See `doc/principal-of-operation.md`.
 //!
@@ -35,6 +35,8 @@ pub mod mpmc{
 
 pub mod spmc{
     //! Same as [mpmc](crate::mpmc), but writes without lock.
+    //! AUTO_CLEANUP happens on new chunk allocation. _Since there is no more lock - reader can not
+    //! safely call cleanup_
     //!
     //! To be implemented.
 }

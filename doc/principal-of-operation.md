@@ -17,14 +17,14 @@ Memory-wise there is only fixed overhead. Each reader is just kind a pointer.
 
 EventQueue's storage is a single-linked list of chunks.
 In order to read from it, you need to register a Reader (Reader is kinda consuming forward iterator).
-As soon as all readers processed the chunk - it is safe to free it.
+As soon as all readers process the chunk - it is safe to free it.
 Thus - we only need to track the number of readers that completely read the chunk.
 
 Chunk's `read_count` atomic +1 operation happens only when `Reader` cross inter-chunk boundary. And that's basically 
 all atomic stores for reader.
 
-One important thing to note: is that both - writers and readers - go in one direction. This means that if reader are 
-in chunk 2 - chunks 0 and 1 are read.
+One important thing to remember: is that both - writers and readers - go in one direction, they can not "jump".
+This means that if reader are in chunk 2 - chunks 0 and 1 are read.
 
 ## EventQueue
 

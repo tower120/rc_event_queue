@@ -15,13 +15,17 @@ Data from benchmarks in `/benches`
 As you can see, on the long session it lies between `Vec` and `VecDeque`. On very short 
 sessions - it is x2 slower then `VecDeque`.
 
+"Read session size" - is the number of items that reader consume per each `.iter()` call.
+
 ## Single thread write performance
 
 ![](images/st_write_bench.svg)
 
 Write to `EventQueue` is **not** lockless. Hence, `EventQueue::push` is x4 times slower,
 then `Vec::push` (which is not bad already). To overcome that - `EventQueue` has bulk
-insert - `EventQueue::extend`. On long write sessions - it closes to `Vec::extend`. 
+insert - `EventQueue::extend`. On long write sessions - it closes to `Vec::extend`.
+
+"Write session size" - is the number of items that reader push per each `.extend()` call.
 
 ## Thread count read-performance dependency
 
