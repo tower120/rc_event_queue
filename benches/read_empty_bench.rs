@@ -1,4 +1,4 @@
-/// This is special benchmark, to measure empty queue test overhead.
+//! This is special benchmark, to measure empty queue iteration overhead.
 
 use rc_event_queue::mpmc::{EventQueue, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};

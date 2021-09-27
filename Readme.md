@@ -10,6 +10,8 @@ Write performance, using `EventQueue::extend` with at least 4 items, close to `V
 It operates on the chunk basis. Hence - exact lower bound is unkown. 
 
 ```rust
+let event = EventQueue::<usize>::new();
+let mut reader = event.subscribe();
 
 event.push(1);
 event.push(10);
@@ -62,7 +64,6 @@ if event.total_capacity() > 100000{
 Disable `AUTO_CLEANUP` in `Settings`, in order to postpone chunks deallocations.
 
 ```rust
-
 use rc_event_reader::mpmc::{EventQueue, EventReader, Settings};
 
 struct S{} impl Settings for S{

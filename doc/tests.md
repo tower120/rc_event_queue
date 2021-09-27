@@ -1,6 +1,6 @@
 ## Loom tests
 
-took approx. 15 min
+Take approx. 15 min
 
 Linux:
 
