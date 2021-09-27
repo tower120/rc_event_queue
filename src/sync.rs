@@ -1,10 +1,14 @@
+// TODO: change to loom 0.5.2
+pub(crate) use std::sync::Arc;
+
 #[cfg(loom)]
+#[allow(unused_imports)]
 pub(crate) use loom::thread;
 #[cfg(loom)]
 #[allow(unused_imports)]
 pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicBool, Ordering};
-#[cfg(loom)]
-pub(crate) use loom::sync::Arc;
+// #[cfg(loom)]
+// pub(crate) use loom::sync::Arc;
 
 #[cfg(loom)]
 #[derive(Debug)]
@@ -42,8 +46,8 @@ pub(crate) type SpinMutexGuard<'a, T> = MutexGuard<'a, T>;
 pub(crate) use std::thread;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicBool, Ordering};
-#[cfg(not(loom))]
-pub(crate) use std::sync::Arc;
+// #[cfg(not(loom))]
+// pub(crate) use std::sync::Arc;
 #[cfg(not(loom))]
 pub(crate) use parking_lot::{Mutex, MutexGuard};
 #[cfg(not(loom))]

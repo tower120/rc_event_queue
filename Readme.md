@@ -7,7 +7,7 @@ Have very low CPU+memory overhead. Single-thread read performance close to `VecD
 Write performance, using `EventQueue::extend` with at least 4 items, close to `VecDeque` as well. [See benchmarks](doc/benchmarks.md).
 
 [Principle of operation](doc/principal-of-operation.md). Short version - EventQueue does not know where it's readers exactly are. 
-It operates on the chunk basis. Hence - lower bound is unkown. 
+It operates on the chunk basis. Hence - exact lower bound is unkown. 
 
 ```rust
 
@@ -85,3 +85,7 @@ event.cleanup();   // Free used chunks
 
 Use `double_buffering` feature. This will reuse chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
 without alloc/dealloc.
+
+### Soundness
+
+`EventQueue` covered with tests. Also [loom](https://github.com/tokio-rs/loom) tests. See [doc/tests.md](doc/tests.md)
