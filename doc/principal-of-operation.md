@@ -23,7 +23,7 @@ Thus - we only need to track the number of readers that completely read the chun
 Chunk's `read_count` atomic +1 operation happens only when `Reader` cross inter-chunk boundary. And that's basically 
 all atomic stores for reader.
 
-One important thing to note: is that both - writers and readers - go in one direction. This means that if reader are 
+One important thing to note: is that both - writers and readers - go in one direction. This means that if reader is 
 in chunk 2 - chunks 0 and 1 are read.
 
 ## EventQueue
