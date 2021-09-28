@@ -1,6 +1,6 @@
 extern crate rc_event_queue;
 
-use rc_event_queue::mpmc::{EventQueue, EventReader, Iter, LendingIterator};
+use rc_event_queue::mpmc::{EventQueue, EventReader, Iter};
 
 fn main() {
     let event = EventQueue::<usize>::new();

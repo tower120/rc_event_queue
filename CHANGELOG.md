@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 ### Security
-- `EventReader::iter` now return `LendingIterator`. This prevent references from outlive iterator. 
+- `EventReader::iter` now return "LendingIterator". This prevent references from outlive iterator. 
 Since chunk with pointed references may die after iterator drop, it is not safe to keep them outside iterator. 
 ### Changed
 - AUTO_CLEANUP -> CLEANUP{ ON_CHUNK_READ / ON_NEW_CHUNK / NEVER }

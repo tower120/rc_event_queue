@@ -5,7 +5,6 @@ use itertools::{Itertools, assert_equal};
 use std::borrow::BorrowMut;
 use std::ops::Range;
 use crate::tests::utils::{consume_copies, consume_mapped};
-use crate::event_reader::LendingIterator;
 use super::common::*;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]

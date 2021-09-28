@@ -2,7 +2,6 @@ use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
 use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;
-use crate::event_reader::LendingIterator;
 
 #[test]
 fn loom_mt_read_test(){

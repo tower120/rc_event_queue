@@ -1,5 +1,4 @@
 use crate::event_queue::Settings;
-use crate::event_reader::LendingIterator;
 use crate::event_reader::Iter;
 
 pub fn consume_copies<T: Clone, S: Settings>(iter: &mut Iter<T, S>) -> Vec<T> {
