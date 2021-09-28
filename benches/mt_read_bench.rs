@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, black_box, BenchmarkGroup};
-use rc_event_queue::mpmc::{EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
 use std::thread;
 use std::time::{Duration, Instant};
 use criterion::measurement::WallTime;
@@ -68,7 +68,7 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
             struct S{} impl Settings for S{
                 const MIN_CHUNK_SIZE: u32 = 32;
                 const MAX_CHUNK_SIZE: u32 = 32;
-                const AUTO_CLEANUP: bool = false;
+                const CLEANUP: CleanupMode = CleanupMode::Never;
             }
             read_bench::<S>(readers_start_offset_step, read_session_size, threads_count)
         });
@@ -76,7 +76,7 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
             struct S{} impl Settings for S{
                 const MIN_CHUNK_SIZE: u32 = 128;
                 const MAX_CHUNK_SIZE: u32 = 128;
-                const AUTO_CLEANUP: bool = false;
+                const CLEANUP: CleanupMode = CleanupMode::Never;
             }
             read_bench::<S>(readers_start_offset_step, read_session_size, threads_count)
         });
@@ -84,7 +84,7 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
             struct S{} impl Settings for S{
                 const MIN_CHUNK_SIZE: u32 = 512;
                 const MAX_CHUNK_SIZE: u32 = 512;
-                const AUTO_CLEANUP: bool = false;
+                const CLEANUP: CleanupMode = CleanupMode::Never;
             }
             read_bench::<S>(readers_start_offset_step, read_session_size, threads_count)
         });
@@ -92,7 +92,7 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
             struct S{} impl Settings for S{
                 const MIN_CHUNK_SIZE: u32 = 2048;
                 const MAX_CHUNK_SIZE: u32 = 2048;
-                const AUTO_CLEANUP: bool = false;
+                const CLEANUP: CleanupMode = CleanupMode::Never;
             }
             read_bench::<S>(readers_start_offset_step, read_session_size, threads_count)
         });

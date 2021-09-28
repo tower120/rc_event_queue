@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue, Settings};
+use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
 use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;
@@ -9,7 +9,7 @@ fn loom_mt_read_test(){
         struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 4;
             const MAX_CHUNK_SIZE: u32 = 4;
-            const AUTO_CLEANUP: bool = true;
+            const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
         }
         mt_read_test_impl::<S>(3, 7);
     });
@@ -27,7 +27,7 @@ fn loom_mt_write_read_test(){
         struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 4;
             const MAX_CHUNK_SIZE: u32 = 4;
-            const AUTO_CLEANUP: bool = true;
+            const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
         }
 
         let event = EventQueue::<[usize;4], S>::new();

@@ -1,4 +1,4 @@
-use rc_event_queue::mpmc::{EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -9,7 +9,7 @@ struct EventQueueSettings{}
 impl Settings for EventQueueSettings{
     const MIN_CHUNK_SIZE: u32 = 512;
     const MAX_CHUNK_SIZE: u32 = 512;
-    const AUTO_CLEANUP: bool = false;
+    const CLEANUP: CleanupMode = CleanupMode::Never;
 }
 
 fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{

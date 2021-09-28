@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue, Settings};
+use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
 use crate::event_reader::EventReader;
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
@@ -39,7 +39,7 @@ fn push_drop_test() {
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
-        const AUTO_CLEANUP: bool = true;
+        const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
     let mut reader_option : Option<EventReader<_, S>> = None;
@@ -78,7 +78,7 @@ fn read_on_full_chunk_test() {
         struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 4;
             const MAX_CHUNK_SIZE: u32 = 4;
-            const AUTO_CLEANUP: bool = true;
+            const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
         }
 
         let chunk_list = EventQueue::<_, S>::new();
@@ -109,7 +109,7 @@ fn huge_push_test() {
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
-        const AUTO_CLEANUP: bool = true;
+        const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
     let event = EventQueue::<usize, S>::new();
@@ -127,7 +127,7 @@ fn extend_test() {
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 8;
         const MAX_CHUNK_SIZE: u32 = 8;
-        const AUTO_CLEANUP: bool = true;
+        const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
     let event = EventQueue::<usize, S>::new();
@@ -146,7 +146,7 @@ fn clean_test() {
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;
-        const AUTO_CLEANUP: bool = true;
+        const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
     let event = EventQueue::<usize, S>::new();
@@ -174,7 +174,7 @@ fn mt_read_test() {
         struct S{} impl Settings for S{
             const MIN_CHUNK_SIZE: u32 = 512;
             const MAX_CHUNK_SIZE: u32 = 512;
-            const AUTO_CLEANUP: bool = true;
+            const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
         }
         mt_read_test_impl::<S>(4, 1000000);
     }
@@ -189,7 +189,7 @@ for _ in 0..100{
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 32;
         const MAX_CHUNK_SIZE: u32 = 32;
-        const AUTO_CLEANUP: bool = true;
+        const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
     let event = EventQueue::<[usize;4], S>::new();
