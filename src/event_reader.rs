@@ -121,7 +121,7 @@ impl<T, S: Settings> EventReader<T, S>
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
-    /// This is consuming iterator. Return references.
+    /// This is consuming iterator. Return references. Iterator item references should not outlive iterator.
     ///
     /// Read counters of affected chunks updated in [Iter::drop].
     pub fn iter(&mut self) -> Iter<T, S>{
@@ -134,6 +134,12 @@ impl<T, S: Settings> Drop for EventReader<T, S>{
     fn drop(&mut self) {
         unsafe { (*self.position.chunk).event().unsubscribe(self); }
     }
+}
+
+/// This should be rust GAT iterator. But it not exists yet.
+pub trait LendingIterator{
+    type ItemValue;
+    fn next(&mut self) -> Option<&Self::ItemValue>;
 }
 
 /// This is consuming iterator.
@@ -162,10 +168,10 @@ impl<'a, T, S: Settings> Iter<'a, T, S>{
     }
 }
 
-impl<'a, T, S: Settings> Iterator for Iter<'a, T, S>{
-    type Item = &'a T;
+impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
+    type ItemValue = T;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<&Self::ItemValue> {
         if /*unlikely*/ self.position.index == self.chunk_len {
             let mut chunk = unsafe{&*self.position.chunk};
 

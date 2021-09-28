@@ -1,4 +1,4 @@
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -51,7 +51,7 @@ fn bench_event_reader_whole(iters: u64) -> Duration{
         }
 
         let start = Instant::now();
-        for i in reader.iter(){
+        while let Some(i) = reader.iter().next(){
             black_box(i);
         }
         total += start.elapsed();

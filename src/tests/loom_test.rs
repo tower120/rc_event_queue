@@ -2,6 +2,7 @@ use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
 use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;
+use crate::event_reader::LendingIterator;
 
 #[test]
 fn loom_mt_read_test(){
@@ -78,7 +79,7 @@ fn loom_mt_write_read_test(){
                 let mut stopped = lock.lock();
 
                 loop {
-                    for [i0, i1,  i2, i3] in reader.iter(){
+                    while let Some([i0, i1,  i2, i3]) = reader.iter().next(){
                         local_sum0 += i0;
                         local_sum1 += i1;
                         local_sum2 += i2;

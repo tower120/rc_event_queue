@@ -4,6 +4,8 @@ use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
 use std::borrow::BorrowMut;
 use std::ops::Range;
+use crate::tests::utils::{consume_copies, consume_mapped};
+use crate::event_reader::LendingIterator;
 use super::common::*;
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
@@ -56,8 +58,8 @@ fn push_drop_test() {
 
         let reader = reader_option.as_mut().unwrap();
         assert_equal(
-            reader.iter().map(|data| &data.id),
-            Vec::<usize>::from([0, 1, 2, 3, 4]).iter()
+            consume_mapped(&mut reader.iter(), |data| data.id),
+            [0, 1, 2, 3, 4]
         );
 
         // Only first chunk should be freed
@@ -90,14 +92,14 @@ fn read_on_full_chunk_test() {
         chunk_list.push(Data::from(3, on_destroy));
 
         assert_equal(
-            reader.iter().map(|data| &data.id),
-            Vec::<usize>::from([0, 1, 2, 3]).iter()
+            consume_mapped(&mut reader.iter(), |data| data.id),
+            [0, 1, 2, 3]
         );
         assert!(destruct_counter.load(Ordering::Relaxed) == 0);
 
         assert_equal(
-            reader.iter().map(|data| &data.id),
-            Vec::<usize>::from([]).iter()
+            consume_mapped(&mut reader.iter(), |data| data.id),
+            []
         );
         assert!(destruct_counter.load(Ordering::Relaxed) == 0);
     }
@@ -119,7 +121,7 @@ fn huge_push_test() {
         event.push(i);
     }
 
-    for _ in reader.iter(){}
+    consume_copies(&mut reader.iter());
 }
 
 #[test]
@@ -137,7 +139,10 @@ fn extend_test() {
 
     event.extend(rng.clone());
 
-    assert_eq!(reader.iter().sum::<usize>(), rng.sum());
+    assert_eq!(
+        consume_copies(&mut reader.iter()).iter().sum::<usize>(),
+        rng.sum()
+    );
 }
 
 
@@ -163,8 +168,8 @@ fn clean_test() {
     event.push(4);
     event.push(5);
     assert_equal(
-        reader.iter(),
-        Vec::<usize>::from([4, 5]).iter()
+        consume_copies(&mut reader.iter()),
+        [4, 5 as usize]
     );
 }
 
@@ -236,7 +241,7 @@ for _ in 0..100{
             loop{
                 let stop = readers_stop.load(Ordering::Acquire);
 
-                for [i0, i1,  i2, i3] in reader.iter(){
+                while let Some([i0, i1,  i2, i3]) = reader.iter().next(){
                     local_sum0 += i0;
                     local_sum1 += i1;
                     local_sum2 += i2;

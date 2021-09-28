@@ -1,4 +1,4 @@
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -61,7 +61,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
                 // to consume leftovers. Since iter's end/sentinel acquired at iter construction.
                 loop{
                     let stop = readers_stop.load(Ordering::Acquire);
-                    for i in reader.iter(){
+                    while let Some(i) = reader.iter().next(){
                         local_sum0 += i;
                     }
                     if stop{ break; }

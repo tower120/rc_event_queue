@@ -1,5 +1,6 @@
 use crate::event_queue::{EventQueue, Settings};
 use crate::sync::{thread};
+use crate::tests::utils::consume_copies;
 
 pub(crate) fn mt_read_test_impl<S: 'static + Settings>(threads_count: usize, len: usize) {
     let event = EventQueue::<usize, S>::new();
@@ -20,7 +21,7 @@ pub(crate) fn mt_read_test_impl<S: 'static + Settings>(threads_count: usize, len
     for mut reader in readers{
         let thread = Box::new(thread::spawn(move || {
             // some work here
-            let local_sum: usize = reader.iter().sum();
+            let local_sum: usize = consume_copies(&mut reader.iter()).iter().sum();
             assert!(local_sum == sum);
         }));
         threads.push(thread);

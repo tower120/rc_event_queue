@@ -1,3 +1,4 @@
+pub(crate) mod utils;
 mod common;
 
 #[cfg(not(loom))]

@@ -4,6 +4,7 @@ use std::ops::ControlFlow::Continue;
 use itertools::assert_equal;
 use std::ops::Deref;
 use crate::sync::Ordering;
+use crate::tests::utils::{consume_copies, skip};
 
 struct S{} impl Settings for S{
     const MIN_CHUNK_SIZE: u32 = 4;
@@ -79,7 +80,7 @@ fn resize_test(){
     assert_equal(get_chunk_capacities(&*list), [4,4,8,8,16,6]);
     assert_equal(get_chunk_lens(&*list), [4,4,8,8,8,1]);
 
-    reader.iter().last();
+    consume_copies(&mut reader.iter());
     assert_equal(get_chunk_capacities(&*list), [6]);
     assert_equal(get_chunk_lens(&*list), [1]);
 
@@ -101,18 +102,18 @@ fn truncate_front_test(){
     event.truncate_front(4);
     reader.update_position();
     assert_equal(get_chunk_capacities(&*list), [8,16]);
-    assert_equal(reader.iter().copied(), [22, 23, 24, 25]);
+    assert_equal(consume_copies(&mut reader.iter()), [22, 23, 24, 25]);
 
 
     // more then queue
     event.extend(0..5);
     event.truncate_front(10);
-    assert_equal(reader.iter().copied(), 0..5 as usize);
+    assert_equal(consume_copies(&mut reader.iter()), 0..5 as usize);
 
     // clear all queue
     event.extend(0..5);
     event.truncate_front(0);
-    assert_equal(reader.iter().copied(), []);
+    assert_equal(consume_copies(&mut reader.iter()), []);
 }
 
 #[test]
@@ -143,7 +144,7 @@ fn CleanupMode_OnNewChunk_test(){
     assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
 
     // 8 - will stop reader on the very last element of 2nd chunk. And will not leave it. So use 9
-    reader.iter().take(9).last();
+    skip(&mut reader.iter(), 9);
     assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
 
     event.push(100);
@@ -165,13 +166,13 @@ fn CleanupMode_Never_test(){
     event.extend(0..12);
     assert_equal(get_chunk_capacities(&*list), [4,4,4]);
 
-    reader.iter().take(5).last();
+    skip(&mut reader.iter(), 5);
     assert_equal(get_chunk_capacities(&*list), [4,4,4]);
 
     event.push(100);
     assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
 
-    reader.iter().last();
+    consume_copies(&mut reader.iter());
     assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
 
     event.cleanup();
