@@ -26,7 +26,7 @@ mod dynamic_array;
 mod dynamic_chunk;
 
 pub mod mpmc{
-    //! Multi consumers, multi producers.
+    //! Multi-producer multi-consumer
     //!
     //! Lock-free reading. Write under lock.
 
@@ -35,11 +35,11 @@ pub mod mpmc{
 }
 
 pub mod spmc{
-    //! Single consumer, multi producers.
+    //! Single-producer multi-consumer.
     //! 
     //! Same as [mpmc](crate::mpmc), but writes without lock.
     //!
-    //! AUTO_CLEANUP happens on new chunk allocation. _Since there is no more lock - reader can not
+    //! CLEANUP happens on new chunk allocation. _Since there is no more lock - reader can not
     //! safely call cleanup_
     //!
     //! To be implemented.
