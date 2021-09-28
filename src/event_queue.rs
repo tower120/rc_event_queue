@@ -16,17 +16,30 @@ use crate::dynamic_chunk::{DynamicChunk};
 #[cfg(feature = "double_buffering")]
 use crate::dynamic_chunk::{DynamicChunkRecycled};
 
+/// This way you can control when chunk's memory deallocation happens.
+#[derive(PartialEq)]
+pub enum CleanupMode{
+    /// Cleanup will be called when chunk fully read.
+    ///
+    /// In this mode memory will be freed ASAP - right in the end of reader consumption session.
+    OnChunkRead,
+    /// Cleanup will be called when new chunk created.
+    OnNewChunk,
+    /// Cleanup will never be called. You should call [EventQueue::cleanup] manually.
+    Never
+}
+
 pub trait Settings{
     const MIN_CHUNK_SIZE : u32;
     const MAX_CHUNK_SIZE : u32;
-    const AUTO_CLEANUP: bool;
+    const CLEANUP: CleanupMode;
 }
 
 pub struct DefaultSettings{}
 impl Settings for DefaultSettings{
     const MIN_CHUNK_SIZE: u32 = 4;
     const MAX_CHUNK_SIZE: u32 = u32::MAX / 4;
-    const AUTO_CLEANUP: bool = true;
+    const CLEANUP: CleanupMode = CleanupMode::OnChunkRead;
 }
 
 struct List<T, S: Settings>{
@@ -140,6 +153,10 @@ impl<T, S: Settings> EventQueue<T, S>
     #[inline]
     fn add_chunk(&self, list: &mut List<T, S>) -> &mut DynamicChunk<T, S>{
         let node = unsafe{&mut *list.last};
+
+        if S::CLEANUP == CleanupMode::OnNewChunk{
+            self.cleanup_impl(list);
+        }
 
         // Size pattern 4,4,8,8,16,16
         let new_size: usize = {
@@ -259,8 +276,8 @@ impl<T, S: Settings> EventQueue<T, S>
 
         let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
 
-        if S::AUTO_CLEANUP{
-            self.cleanup_impl(&mut list);
+        if S::CLEANUP != CleanupMode::Never{
+            self.cleanup_impl(&mut *list);
         }
 
         if prev_readers == 1{
@@ -270,7 +287,7 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    unsafe fn free_chunk(chunk: *mut DynamicChunk<T, S>, list: &mut MutexGuard<List<T, S>>){
+    unsafe fn free_chunk(chunk: *mut DynamicChunk<T, S>, list: &mut List<T, S>){
         #[cfg(not(feature = "double_buffering"))]
         {
             DynamicChunk::destruct(chunk);
@@ -291,7 +308,7 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    fn cleanup_impl(&self, list: &mut MutexGuard<List<T, S>>){
+    fn cleanup_impl(&self, list: &mut List<T, S>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             foreach_chunk(
@@ -320,9 +337,9 @@ impl<T, S: Settings> EventQueue<T, S>
 
     /// Free all completely read chunks.
     ///
-    /// Called automatically with [Settings::AUTO_CLEANUP] = true.
+    /// Called automatically with [Settings::CLEANUP] != Never.
     pub fn cleanup(&self){
-        self.cleanup_impl(&mut self.list.lock());
+        self.cleanup_impl(&mut *self.list.lock());
     }
 
     #[inline]
@@ -346,11 +363,11 @@ impl<T, S: Settings> EventQueue<T, S>
             );
         }
 
-        if S::AUTO_CLEANUP {
+/*        if S::AUTO_CLEANUP {
             if self.readers.load(Ordering::Relaxed) == 0{
                 self.cleanup_impl(list);
             }
-        }
+        }*/
     }
 
 
@@ -440,12 +457,12 @@ impl<T, S: Settings> EventQueue<T, S>
         }
         self.add_chunk_sized(&mut *list, new_capacity as usize);
 
-        if S::AUTO_CLEANUP {
+/*        if S::AUTO_CLEANUP {
             if self.readers.load(Ordering::Relaxed) == 0{
                 self.cleanup_impl(&mut list);
             }
         }
-    }
+*/    }
 
     /// Returns total chunks capacity.
     pub fn total_capacity(&self) -> usize {

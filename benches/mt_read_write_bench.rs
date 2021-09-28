@@ -1,4 +1,4 @@
-use rc_event_queue::mpmc::{EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -11,7 +11,7 @@ const QUEUE_SIZE: usize = 100000;
 struct S{} impl Settings for S{
     const MIN_CHUNK_SIZE: u32 = 512;
     const MAX_CHUNK_SIZE: u32 = 512;
-    const AUTO_CLEANUP: bool = false;
+    const CLEANUP: CleanupMode = CleanupMode::Never;
 }
 type Event = EventQueue<usize, S>;
 type ArcEvent = Pin<Arc<Event>>;

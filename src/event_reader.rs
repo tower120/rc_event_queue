@@ -5,7 +5,7 @@
 
 use crate::sync::Ordering;
 use std::ptr::null_mut;
-use crate::event_queue::{foreach_chunk, Settings};
+use crate::event_queue::{CleanupMode, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
@@ -80,7 +80,10 @@ impl<T, S: Settings> EventReader<T, S>
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position(new_start_position, S::AUTO_CLEANUP);
+            self.set_forward_position(
+                new_start_position,
+                S::CLEANUP == CleanupMode::OnChunkRead
+            );
         }
 
         // Relaxed, because under lock
@@ -133,6 +136,11 @@ impl<T, S: Settings> Drop for EventReader<T, S>{
     }
 }
 
+/// This is consuming iterator.
+///
+/// Return references. References have lifetime of Iter.
+///
+/// On [drop] `cleanup` may be called. See [Settings::CLEANUP].
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
 pub struct Iter<'a, T, S: Settings>
@@ -204,6 +212,9 @@ impl<'a, T, S: Settings> Iterator for Iter<'a, T, S>{
 
 impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(self.position, S::AUTO_CLEANUP);
+        self.event_reader.set_forward_position(
+            self.position,
+            S::CLEANUP == CleanupMode::OnChunkRead
+        );
     }
 }

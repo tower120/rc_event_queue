@@ -2,6 +2,7 @@ use criterion::{Criterion, BenchmarkId, black_box, criterion_main, criterion_gro
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use rc_event_queue::mpmc;
+use rc_event_queue::mpmc::CleanupMode;
 
 const QUEUE_SIZE: usize = 100000;
 
@@ -9,7 +10,7 @@ struct EventQueueSettings{}
 impl mpmc::Settings for EventQueueSettings{
     const MIN_CHUNK_SIZE: u32 = 512;
     const MAX_CHUNK_SIZE: u32 = 512;
-    const AUTO_CLEANUP: bool = false;
+    const CLEANUP: CleanupMode = CleanupMode::Never;
 }
 type EventQueue<T> = mpmc::EventQueue<T, EventQueueSettings>;
 

@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue, foreach_chunk, Settings, List};
+use crate::event_queue::{EventQueue, foreach_chunk, Settings, List, CleanupMode, DefaultSettings};
 use std::ptr::null;
 use std::ops::ControlFlow::Continue;
 use itertools::assert_equal;
@@ -8,7 +8,7 @@ use crate::sync::Ordering;
 struct S{} impl Settings for S{
     const MIN_CHUNK_SIZE: u32 = 4;
     const MAX_CHUNK_SIZE: u32 = u32::MAX;
-    const AUTO_CLEANUP: bool = true;
+    const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
 }
 
 fn get_chunk_capacities<T, S: Settings>(list: &List<T, S>) -> Vec<usize> {
@@ -125,4 +125,55 @@ fn capacity_test(){
 
     assert_eq!(event.chunk_capacity(), 16);
     assert_eq!(event.total_capacity(), get_chunk_capacities(&*list).iter().sum());
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn CleanupMode_OnNewChunk_test(){
+    struct S{} impl Settings for S{
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
+        const CLEANUP: CleanupMode = CleanupMode::OnNewChunk;
+    }
+    let event = EventQueue::<usize, S>::new();
+    let mut reader = event.subscribe();
+    let list = unsafe{ &*(event.list.lock().deref() as *const List<usize, S>) };
+
+    event.extend(0..16);
+    assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
+
+    // 8 - will stop reader on the very last element of 2nd chunk. And will not leave it. So use 9
+    reader.iter().take(9).last();
+    assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
+
+    event.push(100);
+    assert_equal(get_chunk_capacities(&*list), [4,4,4]);
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn CleanupMode_Never_test(){
+    struct S{} impl Settings for S{
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
+        const CLEANUP: CleanupMode = CleanupMode::Never;
+    }
+    let event = EventQueue::<usize, S>::new();
+    let mut reader = event.subscribe();
+    let list = unsafe{ &*(event.list.lock().deref() as *const List<usize, S>) };
+
+    event.extend(0..12);
+    assert_equal(get_chunk_capacities(&*list), [4,4,4]);
+
+    reader.iter().take(5).last();
+    assert_equal(get_chunk_capacities(&*list), [4,4,4]);
+
+    event.push(100);
+    assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
+
+    reader.iter().last();
+    assert_equal(get_chunk_capacities(&*list), [4,4,4,4]);
+
+    event.cleanup();
+    assert_equal(get_chunk_capacities(&*list), [4]);
 }
