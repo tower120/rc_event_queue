@@ -121,14 +121,14 @@ impl<T, S: Settings> EventReader<T, S>
     // TODO: copy_iter() ?
 
     // TODO: rename to `read` ?
-    /// This is consuming iterator. Return references. Iterator item references should not outlive iterator.
+    /// This is consuming iterator. Return references.
+    /// Iterator items references should not outlive iterator.
     ///
     /// Read counters of affected chunks updated in [Iter::drop].
     pub fn iter(&mut self) -> Iter<T, S>{
         Iter::new(self)
     }
 }
-
 
 impl<T, S: Settings> Drop for EventReader<T, S>{
     fn drop(&mut self) {
