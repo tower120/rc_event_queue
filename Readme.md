@@ -1,5 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/rc_event_queue.svg)](https://crates.io/crates/rc_event_queue)
 [![Docs](https://docs.rs/rc_event_queue/badge.svg)](https://docs.rs/rc_event_queue)
+[![CI](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml)
 
 ## Reader counted event queue
 
