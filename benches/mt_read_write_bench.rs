@@ -1,4 +1,4 @@
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;

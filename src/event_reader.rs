@@ -136,11 +136,17 @@ impl<T, S: Settings> Drop for EventReader<T, S>{
     }
 }
 
-/// This is consuming iterator. Return references. References have lifetime of Iter.
+/// This should be rust GAT iterator. But it not exists yet.
+pub trait LendingIterator{
+    type ItemValue;
+    fn next(&mut self) -> Option<&Self::ItemValue>;
+}
+
+/// This is consuming iterator.
+///
+/// Return references. References have lifetime of Iter.
 ///
 /// On [drop] `cleanup` may be called. See [Settings::CLEANUP].
-///
-/// This should be rust GAT iterator (LendingIterator/StreamingIterator). But it does not exists yet.
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
 pub struct Iter<'a, T, S: Settings>
@@ -160,8 +166,12 @@ impl<'a, T, S: Settings> Iter<'a, T, S>{
             event_reader : event_reader,
         }
     }
+}
 
-    pub fn next(&mut self) -> Option<&T> {
+impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
+    type ItemValue = T;
+
+    fn next(&mut self) -> Option<&Self::ItemValue> {
         if /*unlikely*/ self.position.index == self.chunk_len {
             let mut chunk = unsafe{&*self.position.chunk};
 

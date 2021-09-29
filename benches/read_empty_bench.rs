@@ -1,6 +1,6 @@
 //! This is special benchmark, to measure empty queue iteration overhead.
 
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, Settings};
+use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
