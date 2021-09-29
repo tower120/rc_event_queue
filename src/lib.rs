@@ -1,4 +1,4 @@
-//! Concurrent FIFO queue.
+//! Concurrent FIFO event queue / message queue. Multi consumer. Each consumer receive all messages.
 //! Lock-free reading. Write under lock (for [mpmc] version). Write lock does not block read.
 //!
 //! Linked list of chunks (C++ std::deque -like). Each chunk have "read counter".

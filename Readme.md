@@ -3,11 +3,11 @@
 
 ## Reader counted event queue
 
-Fast, multi-producer multi-consumer / single-producer multi-consumer FIFO event queue _(or message queue)_. Each reader/consumer
+Fast, concurrent FIFO event queue _(or message queue)_. Each reader/consumer
 read every message.
 
-- mpmc - lockless read, locked write.
-- spmc - lockless read, lockless write. WIP. (Should have little to none overhead for writes)
+- mpmc _(multi-producer multi-consumer)_ - lock-free read, locked write.
+- spmc _(single-producer multi-consumer)_ - lock-free read, lock-free write. WIP. (Should have little to none overhead for writes)
 
 Write operations, never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
 
