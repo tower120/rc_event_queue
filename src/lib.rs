@@ -16,9 +16,9 @@ mod sync_build;
 #[cfg(test)]
 mod sync_dev;
 mod sync{
-    pub use crate::sync_build::*;
+    pub(crate) use crate::sync_build::*;
     #[cfg(test)]
-    pub use crate::sync_dev::*;
+    pub(crate) use crate::sync_dev::*;
 }
 
 mod utils;

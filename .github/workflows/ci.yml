@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Build bench
-      run: cargo build --bench
+    - name: Build benches
+      run: cargo build --benches
 
   loom:
     runs-on: ubuntu-latest

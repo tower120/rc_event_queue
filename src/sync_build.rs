@@ -1,5 +1,5 @@
 #[cfg(loom)]
-pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, AtomicBool, Ordering};
+pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, Ordering};
 
 #[cfg(loom)]
 pub(crate) use loom::sync::Arc;
