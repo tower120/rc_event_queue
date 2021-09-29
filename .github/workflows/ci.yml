@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, dev ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: RUSTFLAGS="--deny warnings" cargo build --verbose
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: cargo test --verbose
+
+  benches:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run bench
+      run: cargo bench
+
+  loom:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run loom tests
+      run: RUSTFLAGS="--cfg loom" cargo test --lib tests::loom_test --release
