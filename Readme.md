@@ -1,3 +1,6 @@
+[![crates.io](https://img.shields.io/crates/v/rc_event_queue.svg)](https://crates.io/crates/rc_event_queue)
+[![Docs](https://docs.rs/rc_event_queue/badge.svg)](https://docs.rs/rc_event_queue)
+
 ## Reader counted event queue
 
 Fast, multi-producer multi-consumer / single-producer multi-consumer FIFO event queue _(or message queue)_. Each reader/consumer
