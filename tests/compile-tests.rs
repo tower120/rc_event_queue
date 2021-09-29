@@ -13,6 +13,7 @@ fn run_mode(mode: &'static str) {
     compiletest::run_tests(&config);
 }
 
+// If this test fail - try `cargo clean` first.
 #[test]
 fn compile_test() {
     run_mode("compile-fail");
