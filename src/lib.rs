@@ -12,15 +12,7 @@
 //!
 //! * `double_buffering` : Reuse biggest freed chunk.
 
-mod sync_build;
-#[cfg(test)]
-mod sync_dev;
-mod sync{
-    pub(crate) use crate::sync_build::*;
-    #[cfg(test)]
-    pub(crate) use crate::sync_dev::*;
-}
-
+mod sync;
 mod utils;
 mod cursor;
 mod event_queue;
