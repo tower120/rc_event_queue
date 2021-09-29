@@ -136,7 +136,7 @@ impl<T, S: Settings> Drop for EventReader<T, S>{
     }
 }
 
-/// This should be rust GAT iterator. But it not exists yet.
+/// This should be rust GAT iterator. But it does not exists yet.
 pub trait LendingIterator{
     type ItemValue;
     fn next(&mut self) -> Option<&Self::ItemValue>;

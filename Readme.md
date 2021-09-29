@@ -17,9 +17,13 @@ Write performance (mpmc), using `EventQueue::extend` with at least 4 items, clos
 [Principle of operation](doc/principal-of-operation.md). Short version - EventQueue does not know where it's readers exactly are. 
 It operates on the chunk basis. Hence - lower bound known with chunk precision only.
 
-[API doc](https://docs.rs/rc_event_queue/).
+### Usage
+
+[API doc](https://docs.rs/rc_event_queue/)
 
 ```rust
+use rc_event_queue::{EventQueue, LendingIterator};
+
 let event = EventQueue::<usize>::new();
 let mut reader1 = event.subscribe();
 let mut reader2 = event.subscribe();
@@ -29,14 +33,22 @@ event.push(10);
 event.push(100);
 event.push(1000);
 
-assert!(reader1.iter().sum() == 1111);
-assert!(reader1.iter().sum() == 0);
-assert!(reader2.iter().sum() == 1111);
-assert!(reader2.iter().sum() == 0);
+fn sum (mut iter: impl LendingIterator<ItemValue = usize>) -> usize {
+    let mut sum = 0;
+    while let Some(item) = iter.next() {
+        sum += item;
+    }
+    sum
+}
+
+assert!(sum(reader1.iter()) == 1111);
+assert!(sum(reader1.iter()) == 0);
+assert!(sum(reader2.iter()) == 1111);
+assert!(sum(reader2.iter()) == 0);
 
 event.extend(0..10);
-assert!(reader1.iter().sum() == 55);
-assert!(reader2.iter().sum() == 55);
+assert!(sum(reader1.iter()) == 55);
+assert!(sum(reader2.iter()) == 55);
 ```
 
 "soft clear":
@@ -47,8 +59,8 @@ event.clear();
 event.push(100);
 event.push(1000);
 
-assert!(reader1.iter().sum() == 1100);
-assert!(reader2.iter().sum() == 1100);
+assert!(sum(reader1.iter()) == 1100);
+assert!(sum(reader2.iter()) == 1100);
 ```
 Where "soft" - means that any queue-cut operations does not free memory immediately. Readers should be touched for this first.
 
@@ -74,9 +86,9 @@ if event.total_capacity() > 100000{
 
 ### Optimisation
 
-#### AUTO_CLEANUP
+#### CLEANUP
 
-Disable `AUTO_CLEANUP` in `Settings`, in order to postpone chunks deallocations.
+Set `CLEANUP` to `Never` in `Settings`, in order to postpone chunks deallocations.
 
 ```rust
 use rc_event_reader::mpmc::{EventQueue, EventReader, Settings};
@@ -84,14 +96,14 @@ use rc_event_reader::mpmc::{EventQueue, EventReader, Settings};
 struct S{} impl Settings for S{
     const MIN_CHUNK_SIZE: u32 = 4;
     const MAX_CHUNK_SIZE: u32 = 4096;
-    const AUTO_CLEANUP: bool = false;
+    const CLEANUP: CleanupMode = CleanupMode::Never;
 }
 
 let event = EventQueue::<usize, S>::new();
 let mut reader = event.subscribe();
 
 event.extend(0..10);
-reader.iter().last(); // With AUTO_CLEANUP = true, this would cause chunk deallocation
+sum(reader.iter()); // With CLEANUP != Never, this would cause chunk deallocation
 
 ...
 
