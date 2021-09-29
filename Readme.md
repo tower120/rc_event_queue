@@ -1,7 +1,7 @@
 ## Reader counted event queue
 
 Fast, multi-producer multi-consumer / single-producer multi-consumer FIFO event queue _(or message queue)_. Each reader/consumer
-have its own queue position.
+read every message.
 
 - mpmc - lockless read, locked write.
 - spmc - lockless read, lockless write. WIP. (Should have little to none overhead for writes)
@@ -18,18 +18,22 @@ It operates on the chunk basis. Hence - lower bound known with chunk precision o
 
 ```rust
 let event = EventQueue::<usize>::new();
-let mut reader = event.subscribe();
+let mut reader1 = event.subscribe();
+let mut reader2 = event.subscribe();
 
 event.push(1);
 event.push(10);
 event.push(100);
 event.push(1000);
 
-assert!(reader.iter().sum() == 1111);
-assert!(reader.iter().sum() == 0);
+assert!(reader1.iter().sum() == 1111);
+assert!(reader1.iter().sum() == 0);
+assert!(reader2.iter().sum() == 1111);
+assert!(reader2.iter().sum() == 0);
 
 event.extend(0..10);
-assert!(reader.iter().sum() == 55);
+assert!(reader1.iter().sum() == 55);
+assert!(reader2.iter().sum() == 55);
 ```
 
 "soft clear":
@@ -40,7 +44,8 @@ event.clear();
 event.push(100);
 event.push(1000);
 
-assert!(reader.iter().sum() == 1100);
+assert!(reader1.iter().sum() == 1100);
+assert!(reader2.iter().sum() == 1100);
 ```
 Where "soft" - means that any queue-cut operations does not free memory immediately. Readers should be touched for this first.
 
