@@ -1,8 +1,7 @@
 use crate::dynamic_array::DynamicArray;
-use crate::sync::{Ordering, AtomicPtr, AtomicUsize, AtomicU64};
+use crate::sync::{Ordering, AtomicPtr, AtomicUsize};
 use crate::event_queue::{EventQueue, Settings};
 use std::ptr::{null_mut, NonNull};
-use crate::len_and_epoch::LenAndEpoch;
 use std::ptr;
 use crate::chunk_state::{AtomicPackedChunkState, ChunkState, PackedChunkState};
 use crate::StartPointEpoch;

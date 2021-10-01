@@ -9,7 +9,7 @@ use crate::event_queue::{CleanupMode, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
-use crate::chunk_state::{ChunkState, PackedChunkState};
+use crate::chunk_state::{PackedChunkState};
 use crate::StartPointEpoch;
 
 pub struct EventReader<T, S: Settings>

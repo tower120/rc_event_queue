@@ -17,7 +17,6 @@ mod utils;
 mod cursor;
 mod event_queue;
 mod event_reader;
-mod len_and_epoch;
 mod chunk_state;
 #[allow(dead_code)]
 mod dynamic_array;
