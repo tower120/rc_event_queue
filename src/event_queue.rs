@@ -144,7 +144,7 @@ impl<T, S: Settings> EventQueue<T, S>
         };
 
         // connect
-        node.next().store(new_node, Ordering::Release);
+        node.set_next(new_node, Ordering::Release);
         list.last = new_node;
         list.penult_chunk_size = node.capacity() as u32;
 
@@ -267,7 +267,7 @@ impl<T, S: Settings> EventQueue<T, S>
                 event_reader.position.chunk,
                 |chunk| {
                     debug_assert!(
-                        !chunk.next().load(Ordering::Acquire).is_null()
+                        !chunk.next(Ordering::Acquire).is_null()
                     );
                     chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
                     Continue(())
@@ -320,7 +320,7 @@ impl<T, S: Settings> EventQueue<T, S>
                         return Break(());
                     }
 
-                    let next_chunk_ptr = chunk.next().load(Ordering::Relaxed);
+                    let next_chunk_ptr = chunk.next(Ordering::Relaxed);
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
@@ -501,7 +501,7 @@ impl<T, S: Settings> Drop for EventQueue<T, S>{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
                 let node = &mut *node_ptr;
-                node_ptr = node.next().load(Ordering::Relaxed);
+                node_ptr = node.next(Ordering::Relaxed);
                 DynamicChunk::destruct(node);
             }
         }
@@ -548,7 +548,7 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
 
         let chunk = &mut *chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
-        let next_chunk_ptr = chunk.next().load(Ordering::Acquire);
+        let next_chunk_ptr = chunk.next(Ordering::Acquire);
 
         let proceed = func(chunk);
         if proceed == Break(()) {

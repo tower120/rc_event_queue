@@ -240,7 +240,8 @@ for _ in 0..100{
             loop{
                 let stop = readers_stop.load(Ordering::Acquire);
 
-                while let Some([i0, i1,  i2, i3]) = reader.iter().next(){
+                let mut reader = reader.iter();
+                while let Some([i0, i1,  i2, i3]) = reader.next() {
                     local_sum0 += i0;
                     local_sum1 += i1;
                     local_sum2 += i2;

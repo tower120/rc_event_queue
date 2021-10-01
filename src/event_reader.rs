@@ -9,6 +9,7 @@ use crate::event_queue::{CleanupMode, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
+use crate::chunk_state::{ChunkState, PackedChunkState};
 use crate::StartPointEpoch;
 
 pub struct EventReader<T, S: Settings>
@@ -46,7 +47,7 @@ impl<T, S: Settings> EventReader<T, S>
                 new_position.chunk,
                 |chunk| {
                     debug_assert!(
-                        !chunk.next().load(Ordering::Acquire).is_null()
+                        !chunk.next(Ordering::Acquire).is_null()
                     );
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
@@ -77,7 +78,7 @@ impl<T, S: Settings> EventReader<T, S>
     // This is the only reason this code - is a function.
     #[inline(never)]
     #[cold]
-    fn do_update_start_position_and_get_len(&mut self) -> usize /*new len*/{
+    fn do_update_start_position_and_get_chunk_state(&mut self) -> PackedChunkState {
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
@@ -87,20 +88,20 @@ impl<T, S: Settings> EventReader<T, S>
             );
         }
 
-        unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire).len() as usize
+        unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire)
     }
 
     // Returns len of actual self.position.chunk
-    fn update_start_position_and_get_len(&mut self) -> usize{
-        let len_and_epoch = unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire);
-        let len = len_and_epoch.len();
-        let epoch = len_and_epoch.epoch();
+    #[inline]
+    fn update_start_position_and_get_chunk_state(&mut self) -> PackedChunkState {
+        let chunk_state = unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire);
+        let epoch = chunk_state.epoch();
 
         if epoch != self.start_position_epoch {
             self.start_position_epoch = epoch;
-            self.do_update_start_position_and_get_len()
+            self.do_update_start_position_and_get_chunk_state()
         } else {
-            len as usize
+            chunk_state
         }
     }
 
@@ -114,8 +115,9 @@ impl<T, S: Settings> EventReader<T, S>
     ///
     /// Functionally, this is the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
+    #[inline]
     pub fn update_position(&mut self) {
-        self.update_start_position_and_get_len();
+        self.update_start_position_and_get_chunk_state();
     }
 
     // TODO: copy_iter() ?
@@ -125,6 +127,7 @@ impl<T, S: Settings> EventReader<T, S>
     /// Iterator items references should not outlive iterator.
     ///
     /// Read counters of affected chunks updated in [Iter::drop].
+    #[inline]
     pub fn iter(&mut self) -> Iter<T, S>{
         Iter::new(self)
     }
@@ -153,17 +156,18 @@ pub struct Iter<'a, T, S: Settings>
     where EventReader<T, S> : 'a
 {
     position: Cursor<T, S>,
-    chunk_len : usize,
+    chunk_state : PackedChunkState,
     event_reader : &'a mut EventReader<T, S>,
 }
 
 impl<'a, T, S: Settings> Iter<'a, T, S>{
+    #[inline]
     fn new(event_reader: &'a mut EventReader<T, S>) -> Self{
-        let chunk_len = event_reader.update_start_position_and_get_len();
+        let chunk_state = event_reader.update_start_position_and_get_chunk_state();
         Self{
             position: event_reader.position,
-            chunk_len : chunk_len,
-            event_reader : event_reader,
+            chunk_state,
+            event_reader,
         }
     }
 }
@@ -171,39 +175,30 @@ impl<'a, T, S: Settings> Iter<'a, T, S>{
 impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
     type ItemValue = T;
 
+    #[inline]
     fn next(&mut self) -> Option<&Self::ItemValue> {
-        if /*unlikely*/ self.position.index == self.chunk_len {
-            let mut chunk = unsafe{&*self.position.chunk};
-
-            // TODO: store have_next bit in len_and_epoch. And probe here
+        if /*unlikely*/ self.position.index as u32 == self.chunk_state.len(){
             // should try next chunk?
-            // if self.position.index != chunk.capacity(){
-            //     return None;
-            // }
+            if !self.chunk_state.has_next(){
+                return None;
+            }
 
             // have next chunk?
-            let next_chunk = chunk.next().load(Ordering::Acquire);
+            let next_chunk = unsafe{&*self.position.chunk}.next(Ordering::Acquire);
             if next_chunk == null_mut(){
                 return None;
             }
 
-            // TODO: have_next bit in len_and_epoch.
-            if chunk.chunk_state(Ordering::Acquire).len() as usize != self.chunk_len{
-                return None;
-            }
-
             // switch chunk
-            chunk = unsafe{&*next_chunk};
-
-            self.position.chunk = chunk;
+            self.position.chunk = next_chunk;
             self.position.index = 0;
 
-            self.chunk_len = chunk.chunk_state(Ordering::Acquire).len() as usize;
+            self.chunk_state = unsafe{&*next_chunk}.chunk_state(Ordering::Acquire);
 
             // Maybe 0, when new chunk is created, but item still not pushed.
             // It is possible rework `push`/`extend` in the way that this situation will not exists.
             // But for now, just have this check here.
-            if self.chunk_len == 0 {
+            if self.chunk_state.len() == 0 {
                 return None;
             }
         }
@@ -217,6 +212,7 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
 }
 
 impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
+    #[inline]
     fn drop(&mut self) {
         self.event_reader.set_forward_position(
             self.position,

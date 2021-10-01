@@ -45,8 +45,18 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     #[inline]
-    pub fn next(&self) -> &AtomicPtr<Self>{
-        &self.0.header().next
+    pub fn next(&self, load_ordering: Ordering) -> *mut Self{
+        self.0.header().next.load(load_ordering)
+    }
+
+    #[inline]
+    pub fn set_next(&mut self, ptr: *mut Self, store_ordering: Ordering) {
+        self.0.header().next.store(ptr, store_ordering);
+
+        // Relaxed because &mut self
+        let mut chunk_state = self.0.header().chunk_state.load(Ordering::Relaxed);
+        chunk_state.set_has_next(!ptr.is_null());
+        self.0.header().chunk_state.store(chunk_state, store_ordering);
     }
 
     #[inline]
@@ -99,7 +109,6 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         header.id = id;
         header.next = AtomicPtr::new(null_mut());
         header.read_completely_times = AtomicUsize::new(0);
-        //header.len_and_start_position_epoch = AtomicU64::new(LenAndEpoch::new(0, epoch).into());
         header.chunk_state = AtomicPackedChunkState::new(
             PackedChunkState::pack(
                 ChunkState{len: 0, has_next: false, epoch}
