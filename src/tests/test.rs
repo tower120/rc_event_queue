@@ -145,9 +145,8 @@ fn extend_test() {
     );
 }
 
-
 #[test]
-fn clean_test() {
+fn clear_test() {
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 4;
         const MAX_CHUNK_SIZE: u32 = 4;

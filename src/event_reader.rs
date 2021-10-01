@@ -9,11 +9,12 @@ use crate::event_queue::{CleanupMode, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
+use crate::StartPointEpoch;
 
 pub struct EventReader<T, S: Settings>
 {
     pub(super) position: Cursor<T, S>,
-    pub(super) start_position_epoch: u32,
+    pub(super) start_position_epoch: StartPointEpoch,
 }
 
 unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
@@ -86,13 +87,12 @@ impl<T, S: Settings> EventReader<T, S>
             );
         }
 
-        // Relaxed, because under lock
-        unsafe{&*self.position.chunk}.len_and_epoch(Ordering::Relaxed).len() as usize
+        unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire).len() as usize
     }
 
     // Returns len of actual self.position.chunk
     fn update_start_position_and_get_len(&mut self) -> usize{
-        let len_and_epoch = unsafe{&*self.position.chunk}.len_and_epoch(Ordering::Acquire);
+        let len_and_epoch = unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire);
         let len = len_and_epoch.len();
         let epoch = len_and_epoch.epoch();
 
@@ -188,7 +188,7 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
             }
 
             // TODO: have_next bit in len_and_epoch.
-            if chunk.len_and_epoch(Ordering::Acquire).len() as usize != self.chunk_len{
+            if chunk.chunk_state(Ordering::Acquire).len() as usize != self.chunk_len{
                 return None;
             }
 
@@ -198,7 +198,7 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
             self.position.chunk = chunk;
             self.position.index = 0;
 
-            self.chunk_len = chunk.len_and_epoch(Ordering::Acquire).len() as usize;
+            self.chunk_len = chunk.chunk_state(Ordering::Acquire).len() as usize;
 
             // Maybe 0, when new chunk is created, but item still not pushed.
             // It is possible rework `push`/`extend` in the way that this situation will not exists.
