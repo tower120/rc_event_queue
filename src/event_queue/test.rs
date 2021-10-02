@@ -27,7 +27,7 @@ fn get_chunk_lens<T, S: Settings>(list: &List<T, S>) -> Vec<usize> {
     let mut chunk_lens = Vec::new();
     unsafe{
         foreach_chunk(list.first, null(), |chunk|{
-            chunk_lens.push( chunk.len_and_epoch(Ordering::Relaxed).len() as usize );
+            chunk_lens.push( chunk.chunk_state(Ordering::Relaxed).len() as usize );
             Continue(())
         });
     }

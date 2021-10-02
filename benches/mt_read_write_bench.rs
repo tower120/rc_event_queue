@@ -61,7 +61,8 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
                 // to consume leftovers. Since iter's end/sentinel acquired at iter construction.
                 loop{
                     let stop = readers_stop.load(Ordering::Acquire);
-                    while let Some(i) = reader.iter().next(){
+                    let mut iter = reader.iter();
+                    while let Some(i) = iter.next(){
                         local_sum0 += i;
                     }
                     if stop{ break; }

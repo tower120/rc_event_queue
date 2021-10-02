@@ -79,7 +79,8 @@ fn loom_mt_write_read_test(){
                 let mut stopped = lock.lock();
 
                 loop {
-                    while let Some([i0, i1,  i2, i3]) = reader.iter().next(){
+                    let mut reader = reader.iter();
+                    while let Some([i0, i1,  i2, i3]) = reader.next(){
                         local_sum0 += i0;
                         local_sum1 += i1;
                         local_sum2 += i2;

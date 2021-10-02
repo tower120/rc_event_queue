@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+### Changed
+- Improved read performance on long runs.
+
 ## 0.3.0
 ### Security
 - `EventReader::iter` now return `LendingIterator`. This prevent references from outlive iterator. 

@@ -18,7 +18,8 @@ fn bench_event_reader(iters: u64) -> Duration{
         let event = EventQueue::<usize, EventQueueSettings>::new();
         let mut reader = event.subscribe();
         let start = Instant::now();
-        while let Some(i) = reader.iter().next(){
+        let mut iter = reader.iter();
+        while let Some(i) = iter.next(){
             black_box(i);
         }
         total += start.elapsed();

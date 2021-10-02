@@ -15,6 +15,7 @@ use crate::cursor::Cursor;
 use crate::dynamic_chunk::{DynamicChunk};
 #[cfg(feature = "double_buffering")]
 use crate::dynamic_chunk::{DynamicChunkRecycled};
+use crate::StartPositionEpoch;
 
 /// This way you can control when chunk's memory deallocation happens.
 #[derive(PartialEq)]
@@ -93,7 +94,7 @@ impl<T, S: Settings> EventQueue<T, S>
         });
 
         let node = DynamicChunk::<T, S>::construct(
-            0, 0, &*this, S::MIN_CHUNK_SIZE as usize);
+            0, StartPositionEpoch::zero(), &*this, S::MIN_CHUNK_SIZE as usize);
 
         unsafe {
             let event = &mut *(&*this as *const _ as *mut EventQueue<T, S>);
@@ -108,7 +109,7 @@ impl<T, S: Settings> EventQueue<T, S>
     #[inline]
     fn add_chunk_sized(&self, list: &mut List<T, S>, size: usize) -> &mut DynamicChunk<T, S>{
         let node = unsafe{&mut *list.last};
-        let epoch = node.len_and_epoch(Ordering::Relaxed).epoch();
+        let epoch = node.chunk_state(Ordering::Relaxed).epoch();
 
         // make new node
         list.chunk_id_counter += 1;
@@ -143,7 +144,7 @@ impl<T, S: Settings> EventQueue<T, S>
         };
 
         // connect
-        node.next().store(new_node, Ordering::Release);
+        node.set_next(new_node, Ordering::Release);
         list.last = new_node;
         list.penult_chunk_size = node.capacity() as u32;
 
@@ -236,9 +237,9 @@ impl<T, S: Settings> EventQueue<T, S>
         }
 
         let last_chunk = unsafe{&*list.last};
-        let last_chunk_len_and_epoch = last_chunk.len_and_epoch(Ordering::Relaxed);
-        let last_chunk_len = last_chunk_len_and_epoch.len();
-        let epoch = last_chunk_len_and_epoch.epoch();
+        let chunk_state = last_chunk.chunk_state(Ordering::Relaxed);
+        let last_chunk_len = chunk_state.len();
+        let epoch = chunk_state.epoch();
 
         let mut event_reader = EventReader{
             position: Cursor{chunk: list.first, index: 0},
@@ -266,7 +267,7 @@ impl<T, S: Settings> EventQueue<T, S>
                 event_reader.position.chunk,
                 |chunk| {
                     debug_assert!(
-                        !chunk.next().load(Ordering::Acquire).is_null()
+                        !chunk.next(Ordering::Acquire).is_null()
                     );
                     chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
                     Continue(())
@@ -319,7 +320,7 @@ impl<T, S: Settings> EventQueue<T, S>
                         return Break(());
                     }
 
-                    let next_chunk_ptr = chunk.next().load(Ordering::Relaxed);
+                    let next_chunk_ptr = chunk.next(Ordering::Relaxed);
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
@@ -351,10 +352,11 @@ impl<T, S: Settings> EventQueue<T, S>
         *self.start_position.lock() = new_start_position;
 
         // update len_and_start_position_epoch in each chunk
-        let new_epoch = unsafe{ (*list.first).len_and_epoch(Ordering::Relaxed).epoch() } + 1;
+        let first_chunk = unsafe{&mut *list.first};
+        let new_epoch = first_chunk.chunk_state(Ordering::Relaxed).epoch().increment();
         unsafe {
             foreach_chunk_mut(
-                list.first,
+                first_chunk,
                 null(),
                 |chunk| {
                     chunk.set_epoch(new_epoch, Ordering::Relaxed, Ordering::Release);
@@ -362,12 +364,6 @@ impl<T, S: Settings> EventQueue<T, S>
                 }
             );
         }
-
-/*        if S::AUTO_CLEANUP {
-            if self.readers.load(Ordering::Relaxed) == 0{
-                self.cleanup_impl(list);
-            }
-        }*/
     }
 
 
@@ -384,11 +380,11 @@ impl<T, S: Settings> EventQueue<T, S>
         let mut list = self.list.lock();
 
         let last_chunk = unsafe{ &*list.last };
-        let len_and_epoch = last_chunk.len_and_epoch(Ordering::Relaxed);
+        let chunk_len = last_chunk.chunk_state(Ordering::Relaxed).len() as usize;
 
         self.set_start_position(&mut list, Cursor {
             chunk: last_chunk,
-            index: len_and_epoch.len() as usize
+            index: chunk_len
         });
     }
 
@@ -428,7 +424,7 @@ impl<T, S: Settings> EventQueue<T, S>
         let mut total_len = 0;
         for i in (0..chunks_count).rev(){
             let chunk = unsafe{ &*chunks[i] };
-            let chunk_len = chunk.len_and_epoch(Ordering::Relaxed).len() as usize;
+            let chunk_len = chunk.chunk_state(Ordering::Relaxed).len() as usize;
             total_len += chunk_len;
             if total_len >= len{
                 self.set_start_position(&mut list, Cursor {
@@ -505,7 +501,7 @@ impl<T, S: Settings> Drop for EventQueue<T, S>{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
                 let node = &mut *node_ptr;
-                node_ptr = node.next().load(Ordering::Relaxed);
+                node_ptr = node.next(Ordering::Relaxed);
                 DynamicChunk::destruct(node);
             }
         }
@@ -552,7 +548,7 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
 
         let chunk = &mut *chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
-        let next_chunk_ptr = chunk.next().load(Ordering::Acquire);
+        let next_chunk_ptr = chunk.next(Ordering::Acquire);
 
         let proceed = func(chunk);
         if proceed == Break(()) {

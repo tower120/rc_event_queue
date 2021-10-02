@@ -51,7 +51,8 @@ fn bench_event_reader_whole(iters: u64) -> Duration{
         }
 
         let start = Instant::now();
-        while let Some(i) = reader.iter().next(){
+        let mut iter = reader.iter();
+        while let Some(i) = iter.next(){
             black_box(i);
         }
         total += start.elapsed();

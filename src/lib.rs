@@ -17,13 +17,16 @@ mod utils;
 mod cursor;
 mod event_queue;
 mod event_reader;
-mod len_and_epoch;
+mod chunk_state;
 #[allow(dead_code)]
 mod dynamic_array;
 
 // TODO: make double_buffering not a feature.
 #[allow(dead_code)]
 mod dynamic_chunk;
+
+/// Epoch of EventQueue::start_position
+type StartPositionEpoch = crate::utils::Epoch<u32, {i32::MAX as u64}>;
 
 pub mod mpmc{
     //! Multi-producer multi-consumer

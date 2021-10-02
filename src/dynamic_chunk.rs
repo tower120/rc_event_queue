@@ -1,9 +1,10 @@
 use crate::dynamic_array::DynamicArray;
-use crate::sync::{Ordering, AtomicPtr, AtomicUsize, AtomicU64};
+use crate::sync::{Ordering, AtomicPtr, AtomicUsize};
 use crate::event_queue::{EventQueue, Settings};
 use std::ptr::{null_mut, NonNull};
-use crate::len_and_epoch::LenAndEpoch;
 use std::ptr;
+use crate::chunk_state::{AtomicPackedChunkState, ChunkState, PackedChunkState};
+use crate::StartPositionEpoch;
 
 /// Error, indicating insufficient capacity
 pub struct CapacityError<V>{
@@ -28,7 +29,7 @@ struct Header<T, S: Settings>{
     /// LenAndEpoch. Epoch same across all chunks. Epoch updated in all chunks at [EventQueue::clear]
     /// len fused with epoch for optimization purposes. This allow to get start_position_epoch without
     /// touching EventQueue and without additional atomic load(acquire)
-    len_and_start_position_epoch: AtomicU64,
+    chunk_state: AtomicPackedChunkState,
 }
 
 #[repr(transparent)]
@@ -43,8 +44,18 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     #[inline]
-    pub fn next(&self) -> &AtomicPtr<Self>{
-        &self.0.header().next
+    pub fn next(&self, load_ordering: Ordering) -> *mut Self{
+        self.0.header().next.load(load_ordering)
+    }
+
+    #[inline]
+    pub fn set_next(&mut self, ptr: *mut Self, store_ordering: Ordering) {
+        self.0.header().next.store(ptr, store_ordering);
+
+        // Relaxed because &mut self
+        let mut chunk_state = self.0.header().chunk_state.load(Ordering::Relaxed);
+        chunk_state.set_has_next(!ptr.is_null());
+        self.0.header().chunk_state.store(chunk_state, store_ordering);
     }
 
     #[inline]
@@ -59,7 +70,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
 
     pub fn construct(
         id: usize,
-        epoch: u32,
+        epoch: StartPositionEpoch,
         event : *const EventQueue<T, S>,
         len: usize
     ) -> *mut Self{
@@ -68,7 +79,11 @@ impl<T, S: Settings> DynamicChunk<T, S>{
             next: AtomicPtr::new(null_mut()),
             read_completely_times: AtomicUsize::new(0),
             event,
-            len_and_start_position_epoch: AtomicU64::new(LenAndEpoch::new(0, epoch).into())
+            chunk_state: AtomicPackedChunkState::new(
+                PackedChunkState::pack(
+                    ChunkState{len: 0, has_next: false, epoch}
+                )
+            )
         };
         unsafe{
             let this = DynamicArray::<Header<T, S>, T>::construct_uninit(
@@ -87,13 +102,17 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     pub unsafe fn from_recycled(
         mut recycled: DynamicChunkRecycled<T, S>,
         id: usize,
-        epoch: u32,
+        epoch: StartPositionEpoch,
     ) -> *mut Self {
         let header = recycled.chunk.as_mut().0.header_mut();
         header.id = id;
         header.next = AtomicPtr::new(null_mut());
         header.read_completely_times = AtomicUsize::new(0);
-        header.len_and_start_position_epoch = AtomicU64::new(LenAndEpoch::new(0, epoch).into());
+        header.chunk_state = AtomicPackedChunkState::new(
+            PackedChunkState::pack(
+                ChunkState{len: 0, has_next: false, epoch}
+            )
+        );
 
         let ptr = recycled.chunk.as_ptr();
             std::mem::forget(recycled);
@@ -104,12 +123,11 @@ impl<T, S: Settings> DynamicChunk<T, S>{
 //                      STORAGE
 // ----------------------------------------------------------------
     #[inline]
-    pub fn set_epoch(&mut self, epoch: u32, load_ordering: Ordering, store_ordering: Ordering){
-        let len = self.len_and_epoch(load_ordering).len();
-        self.0.header().len_and_start_position_epoch.store(
-            LenAndEpoch::new(len, epoch).into(),
-            store_ordering
-        );
+    pub fn set_epoch(&mut self, epoch: StartPositionEpoch, load_ordering: Ordering, store_ordering: Ordering){
+        let mut chunk_state = self.chunk_state(load_ordering);
+        chunk_state.set_epoch(epoch);
+
+        self.0.header().chunk_state.store(chunk_state, store_ordering);
     }
 
     /// Needs additional synchronization, because several threads writing simultaneously may finish writes
@@ -117,14 +135,13 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     #[inline(always)]
     pub fn try_push(&mut self, value: T, store_ordering: Ordering) -> Result<(), CapacityError<T>>{
         // Relaxed because updated only with &mut self
-        let len_and_epoch: LenAndEpoch = self.len_and_epoch(Ordering::Relaxed);
-        let index = len_and_epoch.len();
-        let epoch = len_and_epoch.epoch();
+        let chunk_state = self.chunk_state(Ordering::Relaxed);
+        let index = chunk_state.len();
         if (index as usize) >= self.capacity() {
             return Result::Err(CapacityError{value});
         }
 
-        unsafe{ self.push_at(value, index, epoch, store_ordering); }
+        unsafe{ self.push_at(value, index, chunk_state, store_ordering); }
 
         return Result::Ok(());
     }
@@ -132,23 +149,21 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     #[inline(always)]
     pub unsafe fn push_unchecked(&mut self, value: T, store_ordering: Ordering){
         // Relaxed because updated only with &mut self
-        let len_and_epoch: LenAndEpoch = self.len_and_epoch(Ordering::Relaxed);
-        let index = len_and_epoch.len();
-        let epoch = len_and_epoch.epoch();
+        let chunk_state = self.chunk_state(Ordering::Relaxed);
+        let index = chunk_state.len();
 
-        self.push_at(value, index, epoch, store_ordering);
+        self.push_at(value, index, chunk_state, store_ordering);
     }
 
     #[inline(always)]
-    pub unsafe fn push_at(&mut self, value: T, index: u32, epoch: u32, store_ordering: Ordering) {
+    unsafe fn push_at(&mut self, value: T, index: u32, mut chunk_state: PackedChunkState, store_ordering: Ordering) {
         debug_assert!((index as usize) < self.capacity());
 
         self.0.write_at(index as usize, value);
 
-        self.0.header().len_and_start_position_epoch.store(
-            LenAndEpoch::new(index+1, epoch).into(),
-            store_ordering
-        );
+        chunk_state.set_len(index+1);
+
+        self.0.header().chunk_state.store(chunk_state, store_ordering);
     }
 
     /// Append items from iterator, until have free space
@@ -156,25 +171,20 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     pub fn extend<I>(&mut self, iter: &mut I, store_ordering: Ordering) -> Result<(), CapacityError<()>>
         where I:Iterator<Item = T>
     {
-        let len_and_epoch: LenAndEpoch = self.len_and_epoch(Ordering::Relaxed);
-        let epoch = len_and_epoch.epoch();
-        let mut index = len_and_epoch.len() as usize;
+        let mut chunk_state = self.chunk_state(Ordering::Relaxed);
+        let mut index = chunk_state.len() as usize;
 
         loop {
             if index == self.capacity(){
-                self.0.header().len_and_start_position_epoch.store(
-                    LenAndEpoch::new(self.capacity() as u32, epoch).into(),
-                    store_ordering
-                );
+                chunk_state.set_len(self.capacity() as u32);
+                self.0.header().chunk_state.store(chunk_state, store_ordering);
                 return Result::Err(CapacityError{value:()});
             }
 
             match iter.next(){
                 None => {
-                    self.0.header().len_and_start_position_epoch.store(
-                        LenAndEpoch::new(index as u32, epoch).into(),
-                        store_ordering
-                    );
+                    chunk_state.set_len(index as u32);
+                    self.0.header().chunk_state.store(chunk_state, store_ordering);
                     return Result::Ok(());
                 }
                 Some(value) => {
@@ -199,8 +209,8 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     #[inline(always)]
-    pub fn len_and_epoch(&self, ordering: Ordering) -> LenAndEpoch {
-        self.0.header().len_and_start_position_epoch.load(ordering).into()
+    pub fn chunk_state(&self, ordering: Ordering) -> PackedChunkState {
+        self.0.header().chunk_state.load(ordering)
     }
 
     #[inline(always)]
@@ -217,7 +227,8 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     #[must_use]
     pub unsafe fn recycle(this: *mut Self) -> DynamicChunkRecycled<T, S>{
         if std::mem::needs_drop::<T>() {
-            let len = (*this).len_and_epoch(Ordering::Acquire).len() as usize;
+            // Relaxed because &mut self
+            let len = (*this).chunk_state(Ordering::Relaxed).len() as usize;
             for i in 0..len {
                  ptr::drop_in_place((*this).0.slice_mut().get_unchecked_mut(i));
             }
