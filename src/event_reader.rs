@@ -10,12 +10,12 @@ use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
 use crate::chunk_state::{PackedChunkState};
-use crate::StartPointEpoch;
+use crate::StartPositionEpoch;
 
 pub struct EventReader<T, S: Settings>
 {
     pub(super) position: Cursor<T, S>,
-    pub(super) start_position_epoch: StartPointEpoch,
+    pub(super) start_position_epoch: StartPositionEpoch,
 }
 
 unsafe impl<T, S: Settings> Send for EventReader<T, S>{}

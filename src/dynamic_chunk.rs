@@ -4,7 +4,7 @@ use crate::event_queue::{EventQueue, Settings};
 use std::ptr::{null_mut, NonNull};
 use std::ptr;
 use crate::chunk_state::{AtomicPackedChunkState, ChunkState, PackedChunkState};
-use crate::StartPointEpoch;
+use crate::StartPositionEpoch;
 
 /// Error, indicating insufficient capacity
 pub struct CapacityError<V>{
@@ -70,7 +70,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
 
     pub fn construct(
         id: usize,
-        epoch: StartPointEpoch,
+        epoch: StartPositionEpoch,
         event : *const EventQueue<T, S>,
         len: usize
     ) -> *mut Self{
@@ -102,7 +102,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     pub unsafe fn from_recycled(
         mut recycled: DynamicChunkRecycled<T, S>,
         id: usize,
-        epoch: StartPointEpoch,
+        epoch: StartPositionEpoch,
     ) -> *mut Self {
         let header = recycled.chunk.as_mut().0.header_mut();
         header.id = id;
@@ -123,7 +123,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
 //                      STORAGE
 // ----------------------------------------------------------------
     #[inline]
-    pub fn set_epoch(&mut self, epoch: StartPointEpoch, load_ordering: Ordering, store_ordering: Ordering){
+    pub fn set_epoch(&mut self, epoch: StartPositionEpoch, load_ordering: Ordering, store_ordering: Ordering){
         let mut chunk_state = self.chunk_state(load_ordering);
         chunk_state.set_epoch(epoch);
 

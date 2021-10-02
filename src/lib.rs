@@ -25,7 +25,8 @@ mod dynamic_array;
 #[allow(dead_code)]
 mod dynamic_chunk;
 
-type StartPointEpoch = crate::utils::Epoch<u32, {i32::MAX as u64}>;
+/// Epoch of EventQueue::start_position
+type StartPositionEpoch = crate::utils::Epoch<u32, {i32::MAX as u64}>;
 
 pub mod mpmc{
     //! Multi-producer multi-consumer

@@ -1,6 +1,6 @@
 use crate::sync::AtomicU64;
 use crate::sync::Ordering;
-use crate::{StartPointEpoch, utils};
+use crate::{StartPositionEpoch, utils};
 
 pub struct AtomicPackedChunkState(AtomicU64);
 
@@ -61,11 +61,11 @@ impl PackedChunkState{
     }
 
     #[inline(always)]
-    pub fn epoch(&self) -> StartPointEpoch {
-        unsafe{ StartPointEpoch::new_unchecked((self.0 >> 33) as u32) }
+    pub fn epoch(&self) -> StartPositionEpoch {
+        unsafe{ StartPositionEpoch::new_unchecked((self.0 >> 33) as u32) }
     }
     #[inline(always)]
-    pub fn set_epoch(&mut self, epoch: StartPointEpoch){
+    pub fn set_epoch(&mut self, epoch: StartPositionEpoch){
         const MASK: u64 = (1 << 33) - 1;    // all first 33 bits 0.
         self.0 &= MASK;
         self.0 |= u64::from(epoch.into_inner()) << 33;
@@ -82,7 +82,7 @@ impl From<PackedChunkState> for u64{
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChunkState{
     pub len   : u32,
-    pub epoch : StartPointEpoch,
+    pub epoch : StartPositionEpoch,
     pub has_next: bool
 }
 
@@ -90,7 +90,7 @@ pub struct ChunkState{
 mod test{
     use rand::Rng;
     use crate::chunk_state::{ChunkState, PackedChunkState};
-    use crate::StartPointEpoch;
+    use crate::StartPositionEpoch;
 
     #[test]
     fn pack_unpack_fuzzy_test(){
@@ -100,7 +100,7 @@ mod test{
         for _ in 0..100000{
             let state = ChunkState{
                 len: rng.gen_range(0 .. u32::MAX),
-                epoch: StartPointEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
+                epoch: StartPositionEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
                 has_next: rng.gen_bool(0.5)
             };
 
@@ -114,7 +114,7 @@ mod test{
     fn pack_unpack_data_test(){
         let state = ChunkState{
             len: 1356995898,
-            epoch: StartPointEpoch::new(1624221158),
+            epoch: StartPositionEpoch::new(1624221158),
             has_next: true
         };
 
@@ -131,12 +131,12 @@ mod test{
         for _ in 0..100000{
             let state1 = ChunkState{
                 len: rng.gen_range(0 .. u32::MAX),
-                epoch: StartPointEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
+                epoch: StartPositionEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
                 has_next: rng.gen_bool(0.5)
             };
             let state2 = ChunkState{
                 len: rng.gen_range(0 .. u32::MAX),
-                epoch: StartPointEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
+                epoch: StartPositionEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
                 has_next: rng.gen_bool(0.5)
             };
 

@@ -15,7 +15,7 @@ use crate::cursor::Cursor;
 use crate::dynamic_chunk::{DynamicChunk};
 #[cfg(feature = "double_buffering")]
 use crate::dynamic_chunk::{DynamicChunkRecycled};
-use crate::StartPointEpoch;
+use crate::StartPositionEpoch;
 
 /// This way you can control when chunk's memory deallocation happens.
 #[derive(PartialEq)]
@@ -94,7 +94,7 @@ impl<T, S: Settings> EventQueue<T, S>
         });
 
         let node = DynamicChunk::<T, S>::construct(
-            0, StartPointEpoch::zero(), &*this, S::MIN_CHUNK_SIZE as usize);
+            0, StartPositionEpoch::zero(), &*this, S::MIN_CHUNK_SIZE as usize);
 
         unsafe {
             let event = &mut *(&*this as *const _ as *mut EventQueue<T, S>);

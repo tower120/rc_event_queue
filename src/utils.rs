@@ -25,7 +25,7 @@ pub fn bitset_u64<const N: u8>(mut value: u64, bit: bool) -> u64 {
     value
 }
 
-
+/// Epoch or generation or version.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Epoch<T, const MAX: u64> (T)
     where T : Copy + Add<Output = T> + PartialOrd + From<u8> + Into<u64>;
