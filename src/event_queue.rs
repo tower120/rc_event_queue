@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 
 use crate::sync::{Ordering, AtomicUsize};
 use crate::sync::{Mutex, MutexGuard, Arc};
@@ -11,11 +11,12 @@ use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
 use std::marker::PhantomPinned;
 use std::pin::Pin;
+use crate::conditional_mutex::CondLockable;
 use crate::cursor::Cursor;
 use crate::dynamic_chunk::{DynamicChunk};
 #[cfg(feature = "double_buffering")]
 use crate::dynamic_chunk::{DynamicChunkRecycled};
-use crate::StartPositionEpoch;
+use crate::{BoolType, False, StartPositionEpoch, True};
 
 /// This way you can control when chunk's memory deallocation happens.
 #[derive(PartialEq)]
@@ -33,14 +34,21 @@ pub enum CleanupMode{
 pub trait Settings{
     const MIN_CHUNK_SIZE : u32;
     const MAX_CHUNK_SIZE : u32;
-    const CLEANUP: CleanupMode;
+    const CLEANUP        : CleanupMode;
+
+    /// * True  = For mpmc. Lock everything. Default mode.
+    /// * False = For spmc. Lock only `cleanup` and `unsubscribe`. MT readers MUST use `unsubscribe`.
+    /// `unsubscribe` depends on list queue. list queue cutted only in`cleanup`, growing is safe for us.
+    /// Hence keeping `cleanup` and `unsubscribe` under lock.
+    type LOCK_PRODUCER: BoolType;
 }
 
 pub struct DefaultSettings{}
 impl Settings for DefaultSettings{
     const MIN_CHUNK_SIZE: u32 = 4;
     const MAX_CHUNK_SIZE: u32 = u32::MAX / 4;
-    const CLEANUP: CleanupMode = CleanupMode::OnChunkRead;
+    const CLEANUP       : CleanupMode = CleanupMode::OnChunkRead;
+    type LOCK_PRODUCER  = True;
 }
 
 struct List<T, S: Settings>{
@@ -152,12 +160,22 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     #[inline]
+    fn on_new_chunk_cleanup(&self, list: &mut List<T, S>){
+        if S::CLEANUP == CleanupMode::OnNewChunk{
+            if S::LOCK_PRODUCER::VALUE{
+                self.cleanup_impl(list);
+            } else {
+                // If we not locked - call `cleanup` - it locks internally
+                self.cleanup();
+            }
+        }
+    }
+
+    #[inline]
     fn add_chunk(&self, list: &mut List<T, S>) -> &mut DynamicChunk<T, S>{
         let node = unsafe{&mut *list.last};
 
-        if S::CLEANUP == CleanupMode::OnNewChunk{
-            self.cleanup_impl(list);
-        }
+        self.on_new_chunk_cleanup(list);
 
         // Size pattern 4,4,8,8,16,16
         let new_size: usize = {
@@ -192,7 +210,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
     #[inline]
     pub fn push(&self, value: T){
-        let mut list = self.list.lock();
+        let mut list = self.list.cond_lock::<S::LOCK_PRODUCER>();
         let node = unsafe{&mut *list.last};
 
         if let Err(err) = node.try_push(value, Ordering::Release){
@@ -208,7 +226,7 @@ impl<T, S: Settings> EventQueue<T, S>
     pub fn extend<I>(&self, iter: I)
         where I: IntoIterator<Item = T>
     {
-        let mut list = self.list.lock();
+        let mut list = self.list.cond_lock::<S::LOCK_PRODUCER>();
         let mut node = unsafe{&mut *list.last};
 
         let mut iter = iter.into_iter();
@@ -228,7 +246,7 @@ impl<T, S: Settings> EventQueue<T, S>
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
     pub fn subscribe(&self) -> EventReader<T, S>{
-        let list = self.list.lock();
+        let list = self.list.cond_lock::<S::LOCK_PRODUCER>();
 
         let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
         if prev_readers == 0{
@@ -346,7 +364,7 @@ impl<T, S: Settings> EventQueue<T, S>
     #[inline]
     fn set_start_position(
         &self,
-        list: &mut MutexGuard<List<T, S>>,
+        list: &mut List<T, S>,
         new_start_position: Cursor<T, S>)
     {
         *self.start_position.lock() = new_start_position;
@@ -377,7 +395,7 @@ impl<T, S: Settings> EventQueue<T, S>
     /// "Lazy move" - means that reader actually change position and mark passed chunks,
     /// as "read", only when actual read starts.
     pub fn clear(&self){
-        let mut list = self.list.lock();
+        let mut list = self.list.cond_lock::<S::LOCK_PRODUCER>();
 
         let last_chunk = unsafe{ &*list.last };
         let chunk_len = last_chunk.chunk_state(Ordering::Relaxed).len() as usize;
@@ -398,7 +416,7 @@ impl<T, S: Settings> EventQueue<T, S>
     /// "Lazy move" - means that reader actually change position and mark passed chunks
     /// as "read", only when actual read starts.
     pub fn truncate_front(&self, len: usize) {
-        let mut list = self.list.lock();
+        let mut list = self.list.cond_lock::<S::LOCK_PRODUCER>();
 
         // make chunks* array
         let chunks_count= unsafe {
@@ -446,23 +464,20 @@ impl<T, S: Settings> EventQueue<T, S>
     pub fn change_chunk_capacity(&self, new_capacity: u32){
         assert!(S::MIN_CHUNK_SIZE <= new_capacity && new_capacity <= S::MAX_CHUNK_SIZE);
 
-        let mut list = self.list.lock();
+        let mut list = self.list.cond_lock::<S::LOCK_PRODUCER>();
+
+        self.on_new_chunk_cleanup(&mut list);
+
         #[cfg(feature = "double_buffering")]
         {
             list.free_chunk = None;
         }
         self.add_chunk_sized(&mut *list, new_capacity as usize);
-
-/*        if S::AUTO_CLEANUP {
-            if self.readers.load(Ordering::Relaxed) == 0{
-                self.cleanup_impl(&mut list);
-            }
-        }
-*/    }
+    }
 
     /// Returns total chunks capacity.
     pub fn total_capacity(&self) -> usize {
-        let list = self.list.lock();
+        let list = self.list.cond_lock::<S::LOCK_PRODUCER>();
         let mut total = 0;
         unsafe {
             foreach_chunk(
@@ -479,7 +494,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
     /// Returns last/active chunk capacity
     pub fn chunk_capacity(&self) -> usize {
-        let list = self.list.lock();
+        let list = self.list.cond_lock::<S::LOCK_PRODUCER>();
         unsafe { (*list.last).capacity() }
     }
 

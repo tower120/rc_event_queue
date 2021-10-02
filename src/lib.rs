@@ -18,12 +18,25 @@ mod cursor;
 mod event_queue;
 mod event_reader;
 mod chunk_state;
+mod conditional_mutex;
 #[allow(dead_code)]
 mod dynamic_array;
 
 // TODO: make double_buffering not a feature.
 #[allow(dead_code)]
 mod dynamic_chunk;
+
+pub trait BoolType{
+    const VALUE: bool;
+}
+pub struct True{}
+impl BoolType for True{
+    const VALUE: bool = true;
+}
+pub struct False{}
+impl BoolType for False{
+    const VALUE: bool = false;
+}
 
 /// Epoch of EventQueue::start_position
 type StartPositionEpoch = crate::utils::Epoch<u32, {i32::MAX as u64}>;
@@ -49,5 +62,5 @@ pub mod spmc{
 }
 
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
