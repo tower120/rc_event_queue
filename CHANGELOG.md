@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 ### Changed
 - Improved read performance on long runs.
 
