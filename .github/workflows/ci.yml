@@ -31,6 +31,13 @@ jobs:
     - name: Build benches
       run: cargo build --benches
 
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build doc
+      run: cargo doc --lib
+
   loom:
     runs-on: ubuntu-latest
     steps:
