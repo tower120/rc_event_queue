@@ -1,4 +1,4 @@
-use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
+use crate::mpmc::{CleanupMode, DefaultSettings, EventQueue, EventReader, Settings};
 use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;
@@ -35,7 +35,7 @@ fn loom_mt_write_read_test(){
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
-            readers.push(event.subscribe());
+            readers.push(EventReader::new(&event));
         }
 
         // etalon

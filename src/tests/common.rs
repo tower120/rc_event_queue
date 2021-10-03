@@ -1,4 +1,4 @@
-use crate::event_queue::{EventQueue, Settings};
+use crate::mpmc::{EventQueue, EventReader, Settings};
 use crate::sync::{thread};
 use crate::tests::utils::consume_copies;
 
@@ -7,7 +7,7 @@ pub(crate) fn mt_read_test_impl<S: 'static + Settings>(threads_count: usize, len
 
     let mut readers = Vec::new();
     for _ in 0..threads_count{
-        readers.push(event.subscribe());
+        readers.push(EventReader::new(&event));
     }
 
     let mut sum = 0;

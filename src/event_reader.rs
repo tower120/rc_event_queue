@@ -153,10 +153,10 @@ pub trait LendingIterator{
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
 pub struct Iter<'a, T, S: Settings>
-    where EventReader<T, S> : 'a
 {
     position: Cursor<T, S>,
     chunk_state : PackedChunkState,
+    // &mut to ensure that only one Iter for Reader can exists
     event_reader : &'a mut EventReader<T, S>,
 }
 

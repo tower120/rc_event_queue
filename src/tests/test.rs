@@ -1,5 +1,5 @@
-use crate::event_queue::{CleanupMode, DefaultSettings, EventQueue, Settings};
-use crate::event_reader::EventReader;
+use crate::mpmc::{DefaultSettings, EventQueue, EventReader, Settings};
+use crate::event_queue::{CleanupMode};
 use crate::sync::{AtomicUsize, Ordering, AtomicBool, Arc, thread};
 use itertools::{Itertools, assert_equal};
 use std::borrow::BorrowMut;
@@ -44,10 +44,10 @@ fn push_drop_test() {
         const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
     }
 
-    let mut reader_option : Option<EventReader<_, S>> = None;
+    let mut reader_option : Option<_> = None;
     {
         let chunk_list = EventQueue::<_, S>::new();
-        reader_option = Option::Some(chunk_list.subscribe());
+        reader_option = Option::Some(EventReader::new(&chunk_list));
 
         chunk_list.push(Data::from(0, on_destroy));
         chunk_list.push(Data::from(1, on_destroy));
@@ -84,7 +84,7 @@ fn read_on_full_chunk_test() {
         }
 
         let chunk_list = EventQueue::<_, S>::new();
-        let mut reader = chunk_list.subscribe();
+        let mut reader = EventReader::new(&chunk_list);
 
         chunk_list.push(Data::from(0, on_destroy));
         chunk_list.push(Data::from(1, on_destroy));
@@ -115,7 +115,7 @@ fn huge_push_test() {
     }
 
     let event = EventQueue::<usize, S>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     for i in 0..100000{
         event.push(i);
@@ -133,7 +133,7 @@ fn extend_test() {
     }
 
     let event = EventQueue::<usize, S>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     let rng : Range<usize> = 0..100000;
 
@@ -154,7 +154,7 @@ fn clear_test() {
     }
 
     let event = EventQueue::<usize, S>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     event.push(0);
     event.push(1);
@@ -200,7 +200,7 @@ for _ in 0..100{
 
     let mut readers = Vec::new();
     for _ in 0..readers_thread_count{
-        readers.push(event.subscribe());
+        readers.push(EventReader::new(&event));
     }
 
     // etalon

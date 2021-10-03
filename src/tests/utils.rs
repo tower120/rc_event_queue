@@ -1,14 +1,11 @@
-use crate::event_queue::Settings;
 use crate::event_reader::LendingIterator;
-use crate::event_reader::Iter;
 
-pub fn consume_copies<T: Clone, S: Settings>(iter: &mut Iter<T, S>) -> Vec<T> {
+pub fn consume_copies<T: Clone>(iter: &mut impl LendingIterator<ItemValue = T>) -> Vec<T> {
     consume_mapped(iter, |item| item.clone())
 }
 
-pub fn consume_mapped<T, S, F, R>(iter: &mut Iter<T, S>, f: F) -> Vec<R>
-where S: Settings,
-      F: Fn(&T) -> R
+pub fn consume_mapped<T, F, R>(iter: &mut impl LendingIterator<ItemValue = T>, f: F) -> Vec<R>
+where F: Fn(&T) -> R
 {
     let mut v = Vec::new();
     while let Some(item) = iter.next(){
@@ -17,8 +14,7 @@ where S: Settings,
     v
 }
 
-
-pub fn skip<T, S:Settings>(iter: &mut Iter<T, S>, len : usize) {
+pub fn skip<T>(iter: &mut impl LendingIterator<ItemValue = T>, len : usize) {
     let mut i = 0;
     while let Some(_) = iter.next(){
         i+=1;

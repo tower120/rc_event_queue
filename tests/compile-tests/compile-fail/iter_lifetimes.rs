@@ -4,7 +4,7 @@ use rc_event_queue::mpmc::{EventQueue, EventReader, Iter, LendingIterator};
 
 fn main() {
     let event = EventQueue::<usize>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     event.extend(0..10);
 

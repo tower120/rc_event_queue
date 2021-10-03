@@ -111,7 +111,7 @@ event.cleanup();   // Free used chunks
 ```
 #### double_buffering
 
-Use `double_buffering` feature. This will reuse biggest chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
+Use `double_buffering` feature. This will reuse biggest freed chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
 without alloc/dealloc.
 
 ### Soundness
