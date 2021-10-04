@@ -1,6 +1,7 @@
 //! mpmc and spmc are the same.
-//! 
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
+//!
+use rc_event_queue::mpmc::{EventQueue, EventReader, Settings};
+use rc_event_queue::prelude::*;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -18,7 +19,7 @@ fn bench_event_reader(iters: u64, read_session_size: usize) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = EventQueue::<usize, EventQueueSettings>::new();
-        let mut reader = event.subscribe();
+        let mut reader = EventReader::new(&event);
         for i in 0..QUEUE_SIZE {
             event.push(i);
         }
@@ -47,7 +48,7 @@ fn bench_event_reader_whole(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = EventQueue::<usize, EventQueueSettings>::new();
-        let mut reader = event.subscribe();
+        let mut reader = EventReader::new(&event);
         for i in 0..QUEUE_SIZE {
             event.push(i);
         }

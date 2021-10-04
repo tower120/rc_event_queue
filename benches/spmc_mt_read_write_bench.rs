@@ -80,7 +80,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
 
 pub fn mt_read_write_event_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("spmc::EventQueue extend");
+    let mut group = c.benchmark_group("spmc mt read write");
     for session_size in [4, 8, 16, 32, 128, 512 as usize]{
         group.bench_with_input(
             BenchmarkId::new("spmc::EventQueue extend", session_size),

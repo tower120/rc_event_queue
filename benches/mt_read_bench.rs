@@ -1,7 +1,8 @@
 //! mpmc and spmc are the same.
 
 use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, black_box, BenchmarkGroup};
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
+use rc_event_queue::mpmc::{EventQueue, EventReader, Settings};
+use rc_event_queue::prelude::*;
 use std::thread;
 use std::time::{Duration, Instant};
 use criterion::measurement::WallTime;
@@ -19,7 +20,7 @@ fn read_bench<S: 'static + Settings>(
     let mut queue_n = 0;
     for _ in 0..readers_thread_count {
         event.extend(queue_n.. queue_n+ readers_start_offset_step);
-        readers.push(event.subscribe());
+        readers.push(EventReader::new(&event));
         queue_n += readers_start_offset_step;
     }
     event.extend(queue_n..QUEUE_SIZE);
@@ -61,10 +62,8 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
         }));
     }
 
-    let mut test_group = |readers_start_offset_step: usize, read_session_size: usize, threads_count: usize|{
-        let mut group = c.benchmark_group(
-            format!("readers_start_offset_step={:}; read_session_size={:}; threads_count={:}",
-                    readers_start_offset_step, read_session_size, threads_count));
+    let mut test_group = |name: &str, readers_start_offset_step: usize, read_session_size: usize, threads_count: usize|{
+        let mut group = c.benchmark_group(name);
 
         bench(&mut group, "chunk:32", ||{
             struct S{} impl Settings for S{
@@ -101,17 +100,17 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
     };
 
     // thread count dependency bench
-    test_group(0, 8096, 2);
-    test_group(0, 8096, 4);
-    test_group(0, 8096, 8);
+    test_group("mt read 2 threads", 0, 8096, 2);
+    test_group("mt read 4 threads", 0, 8096, 4);
+    test_group("mt read 8 threads", 0, 8096, 8);
 
     // read session size dependency bench
-    test_group(0, 8, 8);
+/*    test_group(0, 8, 8);
     test_group(1000, 8, 8);
     test_group(0, 64, 8);
     test_group(1000, 64, 8);
     test_group(0, 8096, 8);
-    test_group(1000, 8096, 8);
+    test_group(1000, 8096, 8);*/
 }
 
 criterion_group!(benches, mt_read_event_benchmark);
