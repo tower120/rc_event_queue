@@ -156,7 +156,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     #[inline(always)]
-    unsafe fn push_at(&mut self, value: T, index: u32, mut chunk_state: PackedChunkState, store_ordering: Ordering) {
+    pub unsafe fn push_at(&mut self, value: T, index: u32, mut chunk_state: PackedChunkState, store_ordering: Ordering) {
         debug_assert!((index as usize) < self.capacity());
 
         self.0.write_at(index as usize, value);
@@ -168,6 +168,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
 
     /// Append items from iterator, until have free space
     /// Returns Ok if everything fit, CapacityError() - if not
+    #[inline]
     pub fn extend<I>(&mut self, iter: &mut I, store_ordering: Ordering) -> Result<(), CapacityError<()>>
         where I:Iterator<Item = T>
     {

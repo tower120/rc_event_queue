@@ -182,25 +182,24 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(list, new_size)
     }
 
-    /*// Leave this for a while. Have feeling that this one should be faster.
+    // Have 10% better performance. Observable in spmc.
     #[inline]
-    pub fn push(&self, value: T){
-        let mut list = self.list.lock();
+    pub fn push(&self, list: &mut List<T, S>, value: T){
         let mut node = unsafe{&mut *list.last};
 
         // Relaxed because we update only under lock
-        let len_and_epoch: LenAndEpoch = node.storage.len_and_epoch(Ordering::Relaxed);
-        let mut storage_len = len_and_epoch.len();
-        let epoch = len_and_epoch.epoch();
+        let chunk_state = node.chunk_state(Ordering::Relaxed);
+        let mut storage_len = chunk_state.len();
 
-        if /*unlikely*/ storage_len as usize == CHUNK_SIZE{
+        if /*unlikely*/ storage_len == node.capacity() as u32{
             node = self.add_chunk(&mut *list);
             storage_len = 0;
         }
 
-        unsafe { node.storage.push_at(value, storage_len, epoch, Ordering::Release); }
-    }*/
+        unsafe { node.push_at(value, storage_len, chunk_state, Ordering::Release); }
+    }
 
+/*
     #[inline]
     pub fn push(&self, list: &mut List<T, S>, value: T){
         let node = unsafe{&mut *list.last};
@@ -212,6 +211,7 @@ impl<T, S: Settings> EventQueue<T, S>
             }
         }
     }
+*/
 
     // Not an Extend trait, because Extend::extend(&mut self)
     #[inline]
