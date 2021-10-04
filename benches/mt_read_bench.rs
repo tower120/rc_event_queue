@@ -1,3 +1,5 @@
+//! mpmc and spmc are the same.
+
 use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, black_box, BenchmarkGroup};
 use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
 use std::thread;

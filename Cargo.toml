@@ -43,5 +43,9 @@ name = "mt_read_bench"
 harness = false
 
 [[bench]]
-name = "mt_read_write_bench"
+name = "mpmc_mt_read_write_bench"
+harness = false
+
+[[bench]]
+name = "spmc_mt_read_write_bench"
 harness = false

@@ -122,7 +122,6 @@ impl<T, S: Settings> EventReader<T, S>
 
     // TODO: copy_iter() ?
 
-    // TODO: rename to `read` ?
     /// This is consuming iterator. Return references.
     /// Iterator items references should not outlive iterator.
     ///

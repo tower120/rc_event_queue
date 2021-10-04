@@ -20,7 +20,7 @@ impl<F: FnMut()> Data<F>{
         Self{
             id : i,
             _name: i.to_string(),
-            on_destroy: on_destroy
+            on_destroy
         }
     }
 }

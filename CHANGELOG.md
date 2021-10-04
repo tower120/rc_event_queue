@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+### Added
+- `spmc` version
 ### Changed
 - `EventQueue::subscribe` -> `EventReader::new`
 

@@ -23,6 +23,8 @@ pub enum CleanupMode{
     /// Cleanup will be called when chunk fully read.
     ///
     /// In this mode memory will be freed ASAP - right in the end of reader consumption session.
+    ///
+    /// !! Not allowed for spmc !!
     OnChunkRead,
     /// Cleanup will be called when new chunk created.
     OnNewChunk,
@@ -37,6 +39,7 @@ pub trait Settings{
 
     /// Lock on new chunk cleanup event. Will dead-lock if already locked.
     const LOCK_ON_NEW_CHUNK_CLEANUP: bool;
+    const CLEANUP_IN_UNSUBSCRIBE: bool;
 }
 
 pub struct List<T, S: Settings>{
@@ -66,9 +69,8 @@ pub struct EventQueue<T, S: Settings>{
     _pinned: PhantomPinned,
 }
 
-unsafe impl<T, S: Settings> Send for EventQueue<T, S>{}
-unsafe impl<T, S: Settings> Sync for EventQueue<T, S>{}
-
+//unsafe impl<T, S: Settings> Send for EventQueue<T, S>{}
+//unsafe impl<T, S: Settings> Sync for EventQueue<T, S>{}
 
 impl<T, S: Settings> EventQueue<T, S>
 {
@@ -282,7 +284,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
         let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
 
-        if S::CLEANUP != CleanupMode::Never{
+        if S::CLEANUP_IN_UNSUBSCRIBE && S::CLEANUP != CleanupMode::Never{
             self.cleanup_impl(&mut *list);
         }
 

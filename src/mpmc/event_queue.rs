@@ -6,7 +6,9 @@ use crate::event_queue::{EventQueue as BaseEventQueue};
 use crate::mpmc::{BS, DefaultSettings, Settings};
 
 #[repr(transparent)]
-pub struct EventQueue<T, S: Settings = DefaultSettings>(pub(crate) BaseEventQueue<T, BS<S>>);
+pub struct EventQueue<T, S: Settings = DefaultSettings>(
+    pub(crate) BaseEventQueue<T, BS<S>>
+);
 
 impl<T, S: Settings> EventQueue<T, S>{
     #[inline]
@@ -75,3 +77,6 @@ impl<T, S: Settings> EventQueue<T, S>{
         self.0.chunk_capacity(&mut list)
     }
 }
+
+unsafe impl<T, S: Settings> Send for EventQueue<T, S>{}
+unsafe impl<T, S: Settings> Sync for EventQueue<T, S>{}

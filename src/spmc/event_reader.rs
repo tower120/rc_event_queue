@@ -2,13 +2,13 @@
 
 use crate::event_reader::{EventReader as BaseEventReader, LendingIterator};
 use crate::event_reader::Iter as BaseIter;
-use crate::mpmc::{BS, EventQueue, Settings};
+use crate::spmc::{BS, EventQueue, Settings};
 
 pub struct EventReader<T, S: Settings>(BaseEventReader<T, BS<S>>);
 impl<T, S: Settings> EventReader<T, S>{
     #[inline]
-    pub fn new(event_queue: &EventQueue<T, S>) -> Self {
-        Self{0: event_queue.0.subscribe(&mut event_queue.0.list.lock())}
+    pub fn new(event_queue: &mut EventQueue<T, S>) -> Self {
+        Self{0: event_queue.0.subscribe(event_queue.get_list())}
     }
 
     #[inline]

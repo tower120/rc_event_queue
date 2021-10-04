@@ -1,4 +1,5 @@
-use crate::mpmc::{EventQueue, EventReader, Settings, CleanupMode, DefaultSettings};
+use crate::mpmc::{EventQueue, EventReader, Settings, DefaultSettings};
+use crate::CleanupMode;
 use std::ptr::null;
 use std::ops::ControlFlow::Continue;
 use itertools::assert_equal;

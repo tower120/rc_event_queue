@@ -1,4 +1,5 @@
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
+use rc_event_queue::mpmc::{ EventQueue, EventReader, Settings};
+use rc_event_queue::{CleanupMode, LendingIterator};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -32,7 +33,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
-            readers.push(event.subscribe());
+            readers.push(EventReader::new(&event));
         }
 
         // write
