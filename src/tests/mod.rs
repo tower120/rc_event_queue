@@ -1,4 +1,6 @@
+#[allow(dead_code)]
 pub(crate) mod utils;
+
 mod common;
 
 #[cfg(not(loom))]

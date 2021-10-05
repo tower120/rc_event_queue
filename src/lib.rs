@@ -2,7 +2,7 @@
 //! Lock-free reading. Write under lock (for [mpmc] version). Write lock does not block read.
 //!
 //! Linked list of chunks (C++ std::deque -like). Each chunk have "read counter".
-//! When "read counter" reach readers count - chunk dropped. Chunk considered read, when
+//! When "read counter" reach readers count - it is safe to drop chunk. Chunk considered read, when
 //! Reader reach its end. See `doc/principal-of-operation.md`.
 //!
 //! `EventQueue` live, until `EventReader`s live.

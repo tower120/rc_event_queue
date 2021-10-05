@@ -4,6 +4,7 @@ use crate::event_reader::{EventReader as BaseEventReader, LendingIterator};
 use crate::event_reader::Iter as BaseIter;
 use crate::spmc::{BS, EventQueue, Settings};
 
+///  See [mpmc](crate::mpmc::EventReader) documentation.
 pub struct EventReader<T, S: Settings>(BaseEventReader<T, BS<S>>);
 impl<T, S: Settings> EventReader<T, S>{
     #[inline]
@@ -22,6 +23,7 @@ impl<T, S: Settings> EventReader<T, S>{
     }
 }
 
+///  See [mpmc](crate::mpmc::Iter) documentation.
 pub struct Iter<'a, T, S: Settings> (BaseIter<'a, T, BS<S>>);
 impl <'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
     type ItemValue = T;

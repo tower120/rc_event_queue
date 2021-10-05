@@ -1,8 +1,9 @@
+#[cfg(not(loom))]
 #[cfg(test)]
 mod test;
 
 use crate::sync::{Ordering, AtomicUsize};
-use crate::sync::{Mutex, MutexGuard, Arc};
+use crate::sync::{Mutex, Arc};
 use crate::sync::{SpinMutex};
 
 use std::ptr::{null_mut, null};
@@ -39,6 +40,7 @@ pub trait Settings{
 
     /// Lock on new chunk cleanup event. Will dead-lock if already locked.
     const LOCK_ON_NEW_CHUNK_CLEANUP: bool;
+    /// Call cleanup on unsubscribe?
     const CLEANUP_IN_UNSUBSCRIBE: bool;
 }
 
@@ -343,9 +345,6 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    /// Free all completely read chunks.
-    ///
-    /// Called automatically with [Settings::CLEANUP] != Never.
     pub fn cleanup(&self){
         self.cleanup_impl(&mut *self.list.lock());
     }
@@ -373,15 +372,6 @@ impl<T, S: Settings> EventQueue<T, S>
         }
     }
 
-    /// "Lazily move" all readers positions to the "end of the queue". From readers perspective,
-    /// equivalent to conventional `clear`.
-    ///
-    /// Does not free memory by itself - all readers need to be touched to free the memory.
-    ///
-    /// "End of the queue" - is the queue's end position at the moment of the `clear` call.
-    ///
-    /// "Lazy move" - means that reader actually change position and mark passed chunks,
-    /// as "read", only when actual read starts.
     pub fn clear(&self, list: &mut List<T, S>){
         let last_chunk = unsafe{ &*list.last };
         let chunk_len = last_chunk.chunk_state(Ordering::Relaxed).len() as usize;
@@ -392,13 +382,6 @@ impl<T, S: Settings> EventQueue<T, S>
         });
     }
 
-    /// "Lazily move" all readers positions to the `len`-th element from the end of the queue.
-    /// From readers perspective, equivalent to conventional `truncate` from the other side.
-    ///
-    /// Does not free memory by itself - all readers need to be touched to free memory.
-    ///
-    /// "Lazy move" - means that reader actually change position and mark passed chunks
-    /// as "read", only when actual read starts.
     pub fn truncate_front(&self, list: &mut List<T, S>, len: usize) {
         // make chunks* array
         let chunks_count= unsafe {
@@ -439,11 +422,6 @@ impl<T, S: Settings> EventQueue<T, S>
         // do nothing.
     }
 
-    /// Adds chunk with `new_capacity` capacity. All next writes will be on new chunk.
-    ///
-    /// Use this, in conjunction with [clear](Self::clear) / [truncate_front](Self::truncate_front),
-    /// to reduce memory pressure ASAP.
-    /// Total capacity will be temporarily increased, until readers get to the new chunk.
     pub fn change_chunk_capacity(&self, list: &mut List<T, S>, new_capacity: u32){
         assert!(S::MIN_CHUNK_SIZE <= new_capacity && new_capacity <= S::MAX_CHUNK_SIZE);
 
@@ -456,7 +434,6 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 
-    /// Returns total chunks capacity.
     pub fn total_capacity(&self, list: &mut List<T, S>) -> usize {
         let mut total = 0;
         unsafe {
@@ -472,7 +449,6 @@ impl<T, S: Settings> EventQueue<T, S>
         total
     }
 
-    /// Returns last/active chunk capacity
     pub fn chunk_capacity(&self, list: &mut List<T, S>) -> usize {
         unsafe { (*list.last).capacity() }
     }

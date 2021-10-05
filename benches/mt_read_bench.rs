@@ -100,6 +100,7 @@ pub fn mt_read_event_benchmark(c: &mut Criterion) {
     };
 
     // thread count dependency bench
+    test_group("mt read 1 thread", 0, 8096, 1);
     test_group("mt read 2 threads", 0, 8096, 2);
     test_group("mt read 4 threads", 0, 8096, 4);
     test_group("mt read 8 threads", 0, 8096, 8);

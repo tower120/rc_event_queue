@@ -1,4 +1,5 @@
-use crate::mpmc::{CleanupMode, DefaultSettings, EventQueue, EventReader, Settings};
+use crate::mpmc::{DefaultSettings, EventQueue, EventReader, Settings};
+use crate::prelude::*;
 use crate::sync::{Arc, thread, Mutex};
 use super::common::*;
 use loom::sync::Condvar;

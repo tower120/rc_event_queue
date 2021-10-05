@@ -24,7 +24,7 @@ rand = "0.8.4"
 compiletest_rs = { version = "0.7" }
 
 [target.'cfg(loom)'.dev-dependencies]
-loom = {git = "https://github.com/tokio-rs/loom.git", rev = "8e005a3fa1348e3d0e22d11d61a4988a8ae1bdd5"}
+loom = {git = "https://github.com/tower120/loom.git", rev = "af371cd1c3d88c0586a39d75dded564bf54d866d"}
 
 [[bench]]
 name = "read_bench"

@@ -1,18 +1,19 @@
-use std::cell::UnsafeCell;
 use std::pin::Pin;
 use crate::sync::Arc;
 use crate::event_queue::{EventQueue as BaseEventQueue, List};
 use crate::spmc::{BS, DefaultSettings, Settings};
 use crate::CleanupMode;
 
-pub struct EventQueue<T, S: Settings = DefaultSettings>(
-    pub(crate) Arc<BaseEventQueue<T, BS<S>>>
-);
-
+/// See [mpmc](crate::mpmc::EventQueue) documentation.
+///
 /// Only [cleanup] and `unsubscribe`(on [EventReader::drop]) are synchronized.
 /// Everything else - overhead free.
 ///
 /// Insert performance in the `std::vec::Vec` league.
+pub struct EventQueue<T, S: Settings = DefaultSettings>(
+    pub(crate) Arc<BaseEventQueue<T, BS<S>>>
+);
+
 impl<T, S: Settings> EventQueue<T, S>{
     #[inline]
     pub fn new() -> Self {
