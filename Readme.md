@@ -19,7 +19,7 @@ Read performance close to `VecDeque`. Write performance:
 - `mpmc` - `push` 4x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
 - `spmc` - equal to `VecDeque`.
 
-[See benchmarks](doc/benchmarks.md).
+[See mpmc benchmarks](doc/mpmc_benchmarks.md).
 
 ### Principle of operation
 

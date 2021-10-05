@@ -1,4 +1,6 @@
 //! mpmc and spmc are the same.
+//!
+//! Chunk size dependence test.
 
 use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, black_box, BenchmarkGroup};
 use rc_event_queue::mpmc::{EventQueue, EventReader, Settings};
