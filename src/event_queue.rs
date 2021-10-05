@@ -124,8 +124,8 @@ impl<T, S: Settings> EventQueue<T, S>
             let mut new_node: *mut DynamicChunk<T, S> = null_mut();
 
             if let Some(recycled_chunk) = &list.free_chunk {
-                // Check if recycled_chunk have sufficient capacity. We never go down in capacity.
-                if recycled_chunk.capacity() >= size {
+                // Check if recycled_chunk have exact capacity.
+                if recycled_chunk.capacity() == size {
                     // unwrap_unchecked()
                     new_node =
                     match list.free_chunk.take() {
@@ -136,6 +136,9 @@ impl<T, S: Settings> EventQueue<T, S>
                                 epoch) }
                         }, None => unsafe { std::hint::unreachable_unchecked() },
                     }
+                } else {
+                    // TODO: try free in cleanup somehow
+                    list.free_chunk = None;
                 }
             }
 
@@ -424,13 +427,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
     pub fn change_chunk_capacity(&self, list: &mut List<T, S>, new_capacity: u32){
         assert!(S::MIN_CHUNK_SIZE <= new_capacity && new_capacity <= S::MAX_CHUNK_SIZE);
-
         self.on_new_chunk_cleanup(list);
-
-        #[cfg(feature = "double_buffering")]
-        {
-            list.free_chunk = None;
-        }
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 

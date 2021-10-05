@@ -2,8 +2,9 @@ use crate::mpmc::{EventQueue, EventReader, Settings, DefaultSettings};
 use crate::CleanupMode;
 use std::ptr::null;
 use std::ops::ControlFlow::Continue;
+use std::ops::Deref;
 use itertools::assert_equal;
-use crate::event_queue::foreach_chunk;
+use crate::event_queue::{foreach_chunk, List};
 use crate::sync::Ordering;
 use crate::tests::utils::{consume_copies, skip};
 
@@ -50,17 +51,17 @@ fn chunks_size_test(){
 #[test]
 fn double_buffering_test(){
     let event = EventQueue::<usize, S>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     event.extend(0..24);
     assert_equal(get_chunks_capacities(&event), [4,4,8,8]);
 
-    reader.iter().last();
-    assert_eq!(list.free_chunk.as_ref().unwrap().capacity(), 8);
+    consume_copies(&mut reader.iter());
+    assert_eq!(event.0.list.lock().free_chunk.as_ref().unwrap().capacity(), 8);
     assert_equal(get_chunks_capacities(&event), [8]);
 
     event.extend(0..32);
-    assert!(list.free_chunk.is_none());
+    assert!(event.0.list.lock().free_chunk.is_none());
     assert_equal(get_chunks_capacities(&event), [8, 8, 16, 16]);
 }
 

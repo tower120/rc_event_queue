@@ -22,7 +22,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Run tests
-      run: cargo test
+      run: cargo test --all-features
 
   benches:
     runs-on: ubuntu-latest
