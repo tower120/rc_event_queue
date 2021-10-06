@@ -12,10 +12,13 @@ exclude = ["doc"]
 
 [features]
 double_buffering = []
+unordered_mpmc = ["kernel32-sys", "array-init"]
 
 [dependencies]
 parking_lot = "0.11.2"
 spin = "0.9.2"
+kernel32-sys = {version="0.2.2", optional=true}
+array-init = {version="2.0.0", optional=true}
 
 [dev-dependencies]
 itertools = "0.10.1"
@@ -43,9 +46,17 @@ name = "mt_read_bench"
 harness = false
 
 [[bench]]
+name = "mt_write_bench"
+harness = false
+
+[[bench]]
 name = "mpmc_mt_read_write_bench"
 harness = false
 
 [[bench]]
 name = "spmc_mt_read_write_bench"
+harness = false
+
+[[bench]]
+name = "unordered_mpmc_mt_read_write_bench"
 harness = false

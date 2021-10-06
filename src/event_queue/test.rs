@@ -48,7 +48,7 @@ fn chunks_size_test(){
 
 #[cfg(feature = "double_buffering")]
 #[test]
-fn double_buffering_test(){
+/*fn double_buffering_test(){
     let event = EventQueue::<usize, S>::new();
     let mut reader = event.subscribe();
 
@@ -62,7 +62,7 @@ fn double_buffering_test(){
     event.extend(0..32);
     assert!(list.free_chunk.is_none());
     assert_equal(get_chunks_capacities(&event), [8, 8, 16, 16]);
-}
+}*/
 
 #[test]
 fn resize_test(){

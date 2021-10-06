@@ -9,5 +9,9 @@ mod mpmc;
 #[cfg(not(loom))]
 mod spmc;
 
+#[cfg(not(loom))]
+#[cfg(feature = "unordered_mpmc")]
+mod unordered_mpmc;
+
 #[cfg(loom)]
 mod loom_test;

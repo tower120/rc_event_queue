@@ -36,6 +36,8 @@ pub mod prelude{
     pub use crate::LendingIterator;
 }
 
+#[cfg(feature = "unordered_mpmc")]
+pub mod unordered_mpmc;
 pub mod mpmc;
 pub mod spmc;
 

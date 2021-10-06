@@ -1,4 +1,8 @@
-use rc_event_queue::mpmc::{ EventQueue, EventReader, Settings};
+/// This copy/paste of mpmc version.
+///
+/// TODO: reduce code duplication.
+
+use rc_event_queue::unordered_mpmc::{EventQueue, EventReader, EventWriter};
 use rc_event_queue::{CleanupMode, LendingIterator};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
@@ -9,13 +13,8 @@ use std::pin::Pin;
 
 const QUEUE_SIZE: usize = 100000;
 
-struct S{} impl Settings for S{
-    const MIN_CHUNK_SIZE: u32 = 512;
-    const MAX_CHUNK_SIZE: u32 = 512;
-    const CLEANUP: CleanupMode = CleanupMode::Never;
-}
-type Event = EventQueue<usize, S>;
-type ArcEvent = Pin<Arc<Event>>;
+type Event = EventQueue<usize>;
+type ArcEvent = Arc<Event>;
 
 
 /// We test high-contention read-write case.
@@ -29,7 +28,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
 
     for _ in 0..iters {
-        let event = Event::new();
+        let event = Arc::new(Event::new());
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
@@ -92,27 +91,28 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
 
 pub fn mt_read_write_event_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("mpmc mt read write");
-    // for session_size in [4, 8, 16, 32, 128, 512 as usize]{
-    //     group.bench_with_input(
-    //         BenchmarkId::new("mpmc::EventQueue extend", session_size),
-    //         &session_size,
-    //         |b, input| b.iter_custom(|iters| {
-    //             let session_len = *input;
-    //             let f = move |event: &ArcEvent, from: usize, to: usize|{
-    //                 write_extend(session_len, event, from, to);
-    //             };
-    //             bench_event_read_write(iters, f)
-    //         }));
-    // }
+    let mut group = c.benchmark_group("unordered_mpmc mt read write");
+/*    for session_size in [4, 8, 16, 32, 128, 512 as usize]{
+        group.bench_with_input(
+            BenchmarkId::new("mpmc::EventQueue extend", session_size),
+            &session_size,
+            |b, input| b.iter_custom(|iters| {
+                let session_len = *input;
+                let f = move |event: &ArcEvent, from: usize, to: usize|{
+                    write_extend(session_len, event, from, to);
+                };
+                bench_event_read_write(iters, f)
+            }));
+    }*/
 
     #[inline(always)]
     fn write_push(event: &ArcEvent, from: usize, to: usize){
+        let mut writer = EventWriter::new(&event);
         for i  in from..to{
-            event.push(black_box(i));
+            writer.push(black_box(i));
         }
     }
-    #[inline(always)]
+/*    #[inline(always)]
     fn write_extend(session_len: usize, event: &ArcEvent, from: usize, to: usize){
         let mut i = from;
         loop{
@@ -126,7 +126,7 @@ pub fn mt_read_write_event_benchmark(c: &mut Criterion) {
 
             i = session_to;
         }
-    }
+    }*/
 
     group.bench_function("mpmc::EventQueue push", |b|b.iter_custom(|iters| bench_event_read_write(iters, write_push)));
 }
