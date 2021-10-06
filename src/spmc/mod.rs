@@ -2,8 +2,8 @@
 //!
 //! Same as [mpmc](crate::mpmc), but writes without lock.
 //!
-//! CLEANUP happens on new chunk allocation. _Since there is no more lock - reader can not
-//! safely call cleanup_
+//! [CleanupMode::OnChunkRead] is not available for spmc! _Since there is no more lock - reader can not
+//! safely call cleanup._
 
 mod event_queue;
 mod event_reader;
@@ -24,10 +24,10 @@ pub trait Settings{
 pub struct DefaultSettings{}
 impl Settings for DefaultSettings{}
 
+/// spmc::Settings -> event_queue::Settings
 pub(crate) struct BS<S: Settings>{
     _phantom: PhantomData<S>
 }
-
 impl<S: Settings> BaseSettings for BS<S>{
     const MIN_CHUNK_SIZE : u32 = S::MIN_CHUNK_SIZE;
     const MAX_CHUNK_SIZE : u32 = S::MAX_CHUNK_SIZE;

@@ -3,7 +3,7 @@
 //!
 //! Linked list of chunks (C++ std::deque -like). Each chunk have "read counter".
 //! When "read counter" reach readers count - it is safe to drop chunk. Chunk considered read, when
-//! Reader reach its end. See `doc/principal-of-operation.md`.
+//! Reader reach its end. See `doc/principle-of-operation.md`.
 //!
 //! `EventQueue` live, until `EventReader`s live.
 //! In order to completely drop `EventQueue` - drop all associated `EventReader`s.

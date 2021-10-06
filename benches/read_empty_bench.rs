@@ -1,5 +1,5 @@
 //! This is special benchmark, to measure empty queue iteration overhead.
-//! mpmc and spmc are the same.
+//! mpmc and spmc use the same code for readers.
 
 use rc_event_queue::mpmc::{EventQueue, EventReader, Settings};
 use rc_event_queue::prelude::*;

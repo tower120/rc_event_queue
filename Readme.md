@@ -23,7 +23,7 @@ Read performance close to `VecDeque`. Write performance:
 
 ### Principle of operation
 
-See [doc/principal-of-operation.md](doc/principal-of-operation.md). 
+See [doc/principle-of-operation.md](doc/principle-of-operation.md). 
 
 Short version - `EventQueue` operates on the chunk basis. `EventQueue` does not touch `EventReader`s . `EventReader`s always
 "pull" from `EventQueue`. The only way `EventReader` interact with `EventQueue` - by increasing read counter on chunk traverse.    
