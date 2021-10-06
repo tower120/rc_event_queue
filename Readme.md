@@ -15,9 +15,20 @@ Write operations, never block read operations. Performance consumer oriented. Mo
 
 Have VERY low CPU + memory overhead. 
 
-Read performance close to `VecDeque`. Write performance:
+#### Single-threaded.
+
+Read - close to `VecDeque`. Write:
 - `mpmc` - `push` 4x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
 - `spmc` - equal to `VecDeque`.
+
+#### Multi-threaded. 
+
+Read - per thread performance degrades slowly, with each additional simultaneously reading thread.
+_(Remember, since `rc_event_queue` is message queue, and each reader read ALL queue -
+adding more readers does not consume queue faster)_
+
+Write - per thread performance degrades linearly, with each additional simultaneously writing thread. 
+(Due to being locked). Not applicable to `spmc`.
 
 [See mpmc benchmarks](doc/mpmc_benchmarks.md).
 
