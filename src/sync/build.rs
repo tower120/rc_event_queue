@@ -14,7 +14,7 @@ impl<T> Mutex<T>{
         Self(loom::sync::Mutex::new(data))
     }
 
-    pub fn lock(&self) -> MutexGuard<'_, T> {
+    pub fn lock(&self) -> loom::sync::MutexGuard<'_, T> {
         self.0.lock().unwrap()
     }
 
