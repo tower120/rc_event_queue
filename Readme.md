@@ -7,26 +7,38 @@
 Fast, concurrent FIFO event queue _(or message queue)_. Multiple consumers receive every message.
 
 - mpmc _(multi-producer multi-consumer)_ - lock-free read, locked write.
-- spmc _(single-producer multi-consumer)_ - lock-free read, lock-free write. WIP. (Should have little to none overhead for writes)
+- spmc _(single-producer multi-consumer)_ - lock-free read, lock-free write.
 
 Write operations, never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
 
-Have very low CPU+memory overhead. Single-thread read performance close to `VecDeque`. 
-Write performance (mpmc), using `EventQueue::extend` with at least 4 items, close to `VecDeque` as well. [See benchmarks](doc/benchmarks.md).
+### Performance
 
-[Principle of operation](doc/principal-of-operation.md). Short version - EventQueue does not know where it's readers exactly are. 
-It operates on the chunk basis. Hence - lower bound known with chunk precision only.
+Have VERY low CPU + memory overhead. 
+
+Read performance close to `VecDeque`. Write performance:
+- `mpmc` - `push` 4x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
+- `spmc` - equal to `VecDeque`.
+
+[See mpmc benchmarks](doc/mpmc_benchmarks.md).
+
+### Principle of operation
+
+See [doc/principle-of-operation.md](doc/principle-of-operation.md). 
+
+Short version - `EventQueue` operates on the chunk basis. `EventQueue` does not touch `EventReader`s . `EventReader`s always
+"pull" from `EventQueue`. The only way `EventReader` interact with `EventQueue` - by increasing read counter on chunk traverse.    
 
 ### Usage
 
 [API doc](https://docs.rs/rc_event_queue/)
 
 ```rust
-use rc_event_queue::{EventQueue, LendingIterator};
+use rc_event_queue::prelude::*;
+use rc_event_queue::mpmc::{EventQueue, EventReader};
 
 let event = EventQueue::<usize>::new();
-let mut reader1 = event.subscribe();
-let mut reader2 = event.subscribe();
+let mut reader1 = EventReader::new(event);
+let mut reader2 = EventReader::new(event);
 
 event.push(1);
 event.push(10);
@@ -111,7 +123,7 @@ event.cleanup();   // Free used chunks
 ```
 #### double_buffering
 
-Use `double_buffering` feature. This will reuse biggest chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
+Use `double_buffering` feature. This will reuse biggest freed chunk. When `EventQueue` reach its optimal size - chunks will be just swapped,
 without alloc/dealloc.
 
 ### Soundness

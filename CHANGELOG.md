@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+### Added
+- `spmc` version
+### Changed
+- `EventQueue::subscribe` -> `EventReader::new`
+
 ## 0.3.1
 ### Changed
 - Improved read performance on long runs.

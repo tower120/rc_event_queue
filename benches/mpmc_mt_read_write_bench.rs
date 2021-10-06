@@ -1,4 +1,5 @@
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
+use rc_event_queue::mpmc::{ EventQueue, EventReader, Settings};
+use rc_event_queue::{CleanupMode, LendingIterator};
 use criterion::{Criterion, black_box, criterion_main, criterion_group, BenchmarkId};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -32,7 +33,7 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
         let mut readers = Vec::new();
         for _ in 0..readers_thread_count{
-            readers.push(event.subscribe());
+            readers.push(EventReader::new(&event));
         }
 
         // write
@@ -91,10 +92,10 @@ fn bench_event_read_write<F>(iters: u64, writer_fn: F) -> Duration
 
 
 pub fn mt_read_write_event_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("EventQueue extend");
+    let mut group = c.benchmark_group("mpmc mt read write");
     for session_size in [4, 8, 16, 32, 128, 512 as usize]{
         group.bench_with_input(
-            BenchmarkId::new("EventQueue extend", session_size),
+            BenchmarkId::new("mpmc::EventQueue extend", session_size),
             &session_size,
             |b, input| b.iter_custom(|iters| {
                 let session_len = *input;
@@ -127,7 +128,7 @@ pub fn mt_read_write_event_benchmark(c: &mut Criterion) {
         }
     }
 
-    group.bench_function("EventQueue push", |b|b.iter_custom(|iters| bench_event_read_write(iters, write_push)));
+    group.bench_function("mpmc::EventQueue push", |b|b.iter_custom(|iters| bench_event_read_write(iters, write_push)));
 }
 
 criterion_group!(benches, mt_read_write_event_benchmark);

@@ -105,15 +105,6 @@ impl<T, S: Settings> EventReader<T, S>
         }
     }
 
-    /// Move cursor to the new position, if necessary.
-    ///
-    /// This will move reader to the new position, and mark all chunks between current
-    /// and new position as "read".
-    ///
-    /// You need this only if you cleared/cut queue, and now want to force free memory.
-    /// (When ALL readers mark chunk as read - it will be deleted)
-    ///
-    /// Functionally, this is the same as just calling `iter()` and drop it.
     // Do we actually need this as separate fn? Benchmark.
     #[inline]
     pub fn update_position(&mut self) {
@@ -122,11 +113,6 @@ impl<T, S: Settings> EventReader<T, S>
 
     // TODO: copy_iter() ?
 
-    // TODO: rename to `read` ?
-    /// This is consuming iterator. Return references.
-    /// Iterator items references should not outlive iterator.
-    ///
-    /// Read counters of affected chunks updated in [Iter::drop].
     #[inline]
     pub fn iter(&mut self) -> Iter<T, S>{
         Iter::new(self)
@@ -145,18 +131,13 @@ pub trait LendingIterator{
     fn next(&mut self) -> Option<&Self::ItemValue>;
 }
 
-/// This is consuming iterator.
-///
-/// Return references. References have lifetime of Iter.
-///
-/// On [drop] `cleanup` may be called. See [Settings::CLEANUP].
 // Having separate chunk+index, allow us to postpone marking passed chunks as read, until the Iter destruction.
 // This allows to return &T instead of T
 pub struct Iter<'a, T, S: Settings>
-    where EventReader<T, S> : 'a
 {
     position: Cursor<T, S>,
     chunk_state : PackedChunkState,
+    // &mut to ensure that only one Iter for Reader can exists
     event_reader : &'a mut EventReader<T, S>,
 }
 

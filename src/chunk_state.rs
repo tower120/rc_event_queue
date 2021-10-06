@@ -94,7 +94,6 @@ mod test{
 
     #[test]
     fn pack_unpack_fuzzy_test(){
-        use rand::Rng;
         let mut rng = rand::thread_rng();
 
         for _ in 0..100000{
@@ -125,7 +124,6 @@ mod test{
 
     #[test]
     fn setters_fuzzy_test(){
-        use rand::Rng;
         let mut rng = rand::thread_rng();
 
         for _ in 0..100000{

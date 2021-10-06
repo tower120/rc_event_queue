@@ -1,6 +1,8 @@
 //! This is special benchmark, to measure empty queue iteration overhead.
+//! mpmc and spmc use the same code for readers.
 
-use rc_event_queue::mpmc::{CleanupMode, EventQueue, LendingIterator, Settings};
+use rc_event_queue::mpmc::{EventQueue, EventReader, Settings};
+use rc_event_queue::prelude::*;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::time::{Instant, Duration};
 use std::collections::VecDeque;
@@ -16,7 +18,7 @@ fn bench_event_reader(iters: u64) -> Duration{
     let mut total = Duration::ZERO;
     for _ in 0..iters {
         let event = EventQueue::<usize, EventQueueSettings>::new();
-        let mut reader = event.subscribe();
+        let mut reader = EventReader::new(&event);
         let start = Instant::now();
         let mut iter = reader.iter();
         while let Some(i) = iter.next(){

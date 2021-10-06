@@ -2,8 +2,8 @@
 //! Lock-free reading. Write under lock (for [mpmc] version). Write lock does not block read.
 //!
 //! Linked list of chunks (C++ std::deque -like). Each chunk have "read counter".
-//! When "read counter" reach readers count - chunk dropped. Chunk considered read, when
-//! Reader reach its end. See `doc/principal-of-operation.md`.
+//! When "read counter" reach readers count - it is safe to drop chunk. Chunk considered read, when
+//! Reader reach its end. See `doc/principle-of-operation.md`.
 //!
 //! `EventQueue` live, until `EventReader`s live.
 //! In order to completely drop `EventQueue` - drop all associated `EventReader`s.
@@ -28,26 +28,16 @@ mod dynamic_chunk;
 /// Epoch of EventQueue::start_position
 type StartPositionEpoch = crate::utils::Epoch<u32, {i32::MAX as u64}>;
 
-pub mod mpmc{
-    //! Multi-producer multi-consumer
-    //!
-    //! Lock-free reading. Write under lock.
+pub use crate::event_queue::CleanupMode;
+pub use crate::event_reader::LendingIterator;
 
-    pub use crate::event_queue::*;
-    pub use crate::event_reader::*;
+pub mod prelude{
+    pub use crate::CleanupMode;
+    pub use crate::LendingIterator;
 }
 
-pub mod spmc{
-    //! Single-producer multi-consumer.
-    //! 
-    //! Same as [mpmc](crate::mpmc), but writes without lock.
-    //!
-    //! CLEANUP happens on new chunk allocation. _Since there is no more lock - reader can not
-    //! safely call cleanup_
-    //!
-    //! To be implemented.
-}
-
+pub mod mpmc;
+pub mod spmc;
 
 #[cfg(test)]
 mod tests;

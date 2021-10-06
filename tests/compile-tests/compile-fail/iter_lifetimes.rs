@@ -1,10 +1,11 @@
 extern crate rc_event_queue;
 
-use rc_event_queue::mpmc::{EventQueue, EventReader, Iter, LendingIterator};
+use rc_event_queue::mpmc::{EventQueue, EventReader, Iter};
+use rc_event_queue::prelude::*;
 
 fn main() {
     let event = EventQueue::<usize>::new();
-    let mut reader = event.subscribe();
+    let mut reader = EventReader::new(&event);
 
     event.extend(0..10);
 

@@ -6,7 +6,7 @@ Windows 10
 rustc 1.5.5 stable
 ```
 
-Data from benchmarks in `/benches`
+Data from `mpmc` benchmarks in `/benches`.
 
 ## Single thread read performance
 
