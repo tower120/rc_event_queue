@@ -24,10 +24,10 @@ Read - close to `VecDeque`. Write:
 #### Multi-threaded. 
 
 Read - per thread performance degrades slowly, with each additional simultaneously reading thread.
-_(Remember, since `rc_event_queue` is message queue, and each reader read ALL queue -
+_(Also remember, since `rc_event_queue` is message queue, and each reader read ALL queue -
 adding more readers does not consume queue faster)_
 
-Write - per thread performance degrades linearly, with each additional simultaneously writing thread. 
+Write - per thread performance degrades close to linearly, with each additional simultaneously writing thread. 
 (Due to being locked). Not applicable to `spmc`.
 
 [See mpmc benchmarks](doc/mpmc_benchmarks.md).
