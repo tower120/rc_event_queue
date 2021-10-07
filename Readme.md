@@ -9,17 +9,20 @@ Fast, concurrent FIFO event queue _(or message queue)_. Multiple consumers recei
 - mpmc _(multi-producer multi-consumer)_ - lock-free read, locked write.
 - spmc _(single-producer multi-consumer)_ - lock-free read, lock-free write.
 
-Write operations, never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
+Write operations never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
+
+**!! Important note !!** In order to use this in practice - your readers need at least sometimes to be alive, or you need a way to touch them.
+They don't need to actually consume - just calling `iter()`/`update_position()` is enough. See [Emergency cut](#emergency-cut).
 
 ### Performance
 
-Have VERY low CPU + memory overhead. 
+Have VERY low CPU + memory overhead. Most of the time reader just do 1 atomic load per `iter()` call. That's all! 
 
 #### Single-threaded.
 
-Read - close to `VecDeque`. Write:
+Read - close to `VecDeque`! Write:
 - `mpmc` - `push` 4x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
-- `spmc` - equal to `VecDeque`.
+- `spmc` - equal to `VecDeque`!
 
 #### Multi-threaded. 
 
@@ -37,7 +40,8 @@ Write - per thread performance degrades close to linearly, with each additional 
 See [doc/principle-of-operation.md](doc/principle-of-operation.md). 
 
 Short version - `EventQueue` operates on the chunk basis. `EventQueue` does not touch `EventReader`s . `EventReader`s always
-"pull" from `EventQueue`. The only way `EventReader` interact with `EventQueue` - by increasing read counter on chunk traverse.    
+"pull" from `EventQueue`. The only way `EventReader` interact with `EventQueue` - by increasing read counter
+when switching to next chunk during traverse.    
 
 ### Usage
 
