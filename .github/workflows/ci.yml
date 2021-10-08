@@ -32,7 +32,6 @@ jobs:
       with:
           toolchain: nightly
           components: miri
-          #override: true
     - name: Miri tests
       run: cargo +nightly miri test
 
