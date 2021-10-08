@@ -47,7 +47,8 @@ pub(crate) use std::sync::atomic::{AtomicPtr, AtomicUsize, AtomicU64, Ordering};
 pub(crate) use std::sync::Arc;
 
 #[cfg(not(loom))]
-pub(crate) use parking_lot::{Mutex};
+//pub(crate) use parking_lot::{Mutex};
+pub(crate) type Mutex<T> = lock_api::Mutex<spin::mutex::Mutex<(), spin::relax::Yield>, T>;
 
 #[cfg(not(loom))]
 pub(crate) use spin::mutex::{SpinMutex};

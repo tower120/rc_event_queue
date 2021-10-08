@@ -281,6 +281,7 @@ impl<T, S: Settings> EventQueue<T, S>
             foreach_chunk(
                 list.first,
                 event_reader.position.chunk,
+                Ordering::Relaxed,      // we're under mutex
                 |chunk| {
                     debug_assert!(
                         !chunk.next(Ordering::Acquire).is_null()
@@ -334,6 +335,7 @@ impl<T, S: Settings> EventQueue<T, S>
             foreach_chunk_ptr_mut(
                 list.first,
                 list.last,
+                Ordering::Relaxed,      // we're under mutex
                 |chunk_ptr| {
                     let chunk = &mut *chunk_ptr;
                     if chunk.read_completely_times().load(Ordering::Acquire) != readers_count{
@@ -375,6 +377,7 @@ impl<T, S: Settings> EventQueue<T, S>
             foreach_chunk_mut(
                 first_chunk,
                 null(),
+                Ordering::Relaxed,      // we're under mutex
                 |chunk| {
                     chunk.set_epoch(new_epoch, Ordering::Relaxed, Ordering::Release);
                     Continue(())
@@ -407,6 +410,7 @@ impl<T, S: Settings> EventQueue<T, S>
             foreach_chunk(
                 list.first,
                 null(),
+                Ordering::Relaxed,      // we're under mutex
                 |chunk| {
                     chunks[i] = chunk;
                     i+=1;
@@ -445,6 +449,7 @@ impl<T, S: Settings> EventQueue<T, S>
             foreach_chunk(
                 list.first,
                 null(),
+                Ordering::Relaxed,      // we're under mutex
                 |chunk| {
                     total += chunk.capacity();
                     Continue(())
@@ -488,6 +493,7 @@ pub(super) unsafe fn foreach_chunk<T, F, S: Settings>
 (
     start_chunk_ptr : *const DynamicChunk<T, S>,
     end_chunk_ptr   : *const DynamicChunk<T, S>,
+    load_ordering   : Ordering,
     mut func : F
 )
     where F: FnMut(&DynamicChunk<T, S>) -> ControlFlow<()>
@@ -495,6 +501,7 @@ pub(super) unsafe fn foreach_chunk<T, F, S: Settings>
     foreach_chunk_mut(
         start_chunk_ptr as *mut _,
         end_chunk_ptr,
+        load_ordering,
         |mut_chunk| func(mut_chunk)
     );
 }
@@ -505,6 +512,7 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
 (
     start_chunk_ptr : *mut DynamicChunk<T, S>,
     end_chunk_ptr   : *const DynamicChunk<T, S>,
+    load_ordering   : Ordering,
     mut func : F
 )
     where F: FnMut(&mut DynamicChunk<T, S>) -> ControlFlow<()>
@@ -512,6 +520,7 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
     foreach_chunk_ptr_mut(
         start_chunk_ptr,
         end_chunk_ptr,
+        load_ordering,
         |mut_chunk_ptr| func(&mut *mut_chunk_ptr)
     );
 }
@@ -522,6 +531,7 @@ pub(super) unsafe fn foreach_chunk_ptr_mut<T, F, S: Settings>
 (
     start_chunk_ptr : *mut DynamicChunk<T, S>,
     end_chunk_ptr   : *const DynamicChunk<T, S>,
+    load_ordering   : Ordering,
     mut func : F
 )
     where F: FnMut(*mut DynamicChunk<T, S>) -> ControlFlow<()>
@@ -539,7 +549,7 @@ pub(super) unsafe fn foreach_chunk_ptr_mut<T, F, S: Settings>
         }
 
         // chunk can be dropped inside `func`, so fetch `next` beforehand
-        let next_chunk_ptr = (*chunk_ptr).next(Ordering::Acquire);
+        let next_chunk_ptr = (*chunk_ptr).next(load_ordering);
 
         let proceed = func(chunk_ptr);
         if proceed == Break(()) {

@@ -6,6 +6,8 @@ Windows 10
 rustc 1.5.5 stable
 ```
 
+**!! Obsolete. Data for v0.4.0 !!**
+
 Data from `mpmc` benchmarks in `/benches`.
 
 ## Single thread read performance

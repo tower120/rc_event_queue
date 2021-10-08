@@ -18,7 +18,8 @@ fn get_chunks_capacities<T, S: Settings>(event_queue: &EventQueue<T, S>) -> Vec<
     let list = &event_queue.0.list.lock();
     let mut chunk_capacities = Vec::new();
     unsafe{
-        foreach_chunk(list.first, null(), |chunk|{
+        foreach_chunk(list.first, null(), Ordering::Acquire,
+            |chunk|{
             chunk_capacities.push( chunk.capacity() );
             Continue(())
         });
@@ -30,7 +31,8 @@ fn get_chunks_lens<T, S: Settings>(event_queue: &EventQueue<T, S>) -> Vec<usize>
     let list = &event_queue.0.list.lock();
     let mut chunk_lens = Vec::new();
     unsafe{
-        foreach_chunk(list.first, null(), |chunk|{
+        foreach_chunk(list.first, null(), Ordering::Acquire,
+        |chunk|{
             chunk_lens.push( chunk.chunk_state(Ordering::Relaxed).len() as usize );
             Continue(())
         });

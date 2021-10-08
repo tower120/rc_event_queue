@@ -22,5 +22,6 @@ pub(crate) use std::sync::atomic::{AtomicBool};
 pub(crate) use spin::mutex::{SpinMutexGuard};
 
 #[cfg(not(loom))]
-pub(crate) use parking_lot::{MutexGuard};
+//pub(crate) use parking_lot::{MutexGuard};
+pub(crate) use spin::lock_api::{MutexGuard};
 

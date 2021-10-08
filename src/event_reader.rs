@@ -8,7 +8,6 @@ use std::ptr::{NonNull, null_mut};
 use crate::event_queue::{CleanupMode, EventQueue, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
-use std::mem::MaybeUninit;
 use crate::chunk_state::{PackedChunkState};
 use crate::StartPositionEpoch;
 
@@ -26,25 +25,17 @@ impl<T, S: Settings> EventReader<T, S>
     pub(super) fn set_forward_position(
         &mut self,
         new_position: Cursor<T, S>,
-        try_cleanup: bool   /*should be generic*/
+        try_cleanup: bool   /*should be generic const*/
     ){
         debug_assert!(new_position >= self.position);
-
-        let mut need_cleanup = false;
-        let readers_count_min_1 =
-            if try_cleanup {
-                let event = unsafe {&*(*new_position.chunk).event()};
-                // TODO: bench acquire
-                event.readers.load(Ordering::Relaxed) - 1
-            } else {
-                unsafe { MaybeUninit::uninit().assume_init() }
-            };
+        let mut first_chunk_readers = 0;
 
         // 1. Mark passed chunks as read
         unsafe {
             foreach_chunk(
                 self.position.chunk,
                 new_position.chunk,
+                Ordering::Acquire,
                 |chunk| {
                     debug_assert!(
                         !chunk.next(Ordering::Acquire).is_null()
@@ -52,8 +43,8 @@ impl<T, S: Settings> EventReader<T, S>
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
                     if try_cleanup {
-                        if prev_read >= readers_count_min_1 {
-                            need_cleanup = true;
+                        if first_chunk_readers == 0{
+                            first_chunk_readers = prev_read+1;
                         }
                     }
 
@@ -64,9 +55,12 @@ impl<T, S: Settings> EventReader<T, S>
 
         // Cleanup (optional)
         if try_cleanup {
-            if need_cleanup{
-                let event = unsafe {(*new_position.chunk).event()};
-                event.cleanup();
+            if first_chunk_readers != 0{
+                let event = unsafe {&*(*new_position.chunk).event()};
+                let readers_count = event.readers.load(Ordering::Acquire);
+                if first_chunk_readers >= readers_count{    // MORE or equal, just in case (this MT...)
+                    event.cleanup();
+                }
             }
         }
 

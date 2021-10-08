@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+### Added
+- miri support
+### Changed
+- Using spin mutex everywhere. Write performance improved x2 in non-heavy concurrent cases.
+
 ## 0.4.0
 ### Added
 - `spmc` version
