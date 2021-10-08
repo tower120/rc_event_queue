@@ -1,8 +1,8 @@
 use std::ops::{Add};
 
 #[inline(always)]
+#[allow(unreachable_code)]
 pub fn bittest_u64<const N: u8>(value: u64) -> bool {
-    #[allow(unreachable_code)]
     #[cfg(not(miri))]
     unsafe {
         #[cfg(target_arch = "x86_64")]
