@@ -9,7 +9,8 @@ Fast, concurrent FIFO event queue _(or message queue)_. Multiple consumers recei
 - mpmc _(multi-producer multi-consumer)_ - lock-free read, locked write.
 - spmc _(single-producer multi-consumer)_ - lock-free read, lock-free write.
 
-Write operations never block read operations. Performance consumer oriented. Mostly contiguous memory layout.
+Write operations never block read operations. Performance consumer oriented. Mostly contiguous memory layout. 
+Memory consumption does not grow with readers number.
 
 **!! Important note !!** In order to use this in practice - your readers need at least sometimes to be alive, or you need a way to touch them.
 They don't need to actually consume - just calling `iter()`/`update_position()` is enough. See [Emergency cut](#emergency-cut).
