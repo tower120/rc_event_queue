@@ -30,7 +30,7 @@ impl<T, S: Settings> EventReader<T, S>
     ){
         debug_assert!(new_position >= self.position);
 
-        let mut need_cleanup = false;
+/*        let mut need_cleanup = false;
         let readers_count_min_1 =
             if try_cleanup {
                 let event = unsafe {&*(*new_position.chunk).event()};
@@ -39,12 +39,15 @@ impl<T, S: Settings> EventReader<T, S>
             } else {
                 unsafe { MaybeUninit::uninit().assume_init() }
             };
+*/
+        let mut first_chunk_readers = 0;
 
         // 1. Mark passed chunks as read
         unsafe {
             foreach_chunk(
                 self.position.chunk,
                 new_position.chunk,
+                Ordering::Acquire,
                 |chunk| {
                     debug_assert!(
                         !chunk.next(Ordering::Acquire).is_null()
@@ -52,9 +55,13 @@ impl<T, S: Settings> EventReader<T, S>
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
                     if try_cleanup {
-                        if prev_read >= readers_count_min_1 {
-                            need_cleanup = true;
+                        if first_chunk_readers == 0{
+                            first_chunk_readers = prev_read+1;
                         }
+
+                        // if prev_read >= readers_count_min_1 {
+                        //     need_cleanup = true;
+                        // }
                     }
 
                     Continue(())
@@ -64,10 +71,18 @@ impl<T, S: Settings> EventReader<T, S>
 
         // Cleanup (optional)
         if try_cleanup {
-            if need_cleanup{
-                let event = unsafe {(*new_position.chunk).event()};
-                event.cleanup();
+            if first_chunk_readers != 0{
+                let event = unsafe {&*(*new_position.chunk).event()};
+                let readers_count = event.readers.load(Ordering::Acquire);
+                if first_chunk_readers >= readers_count{    // MORE or equal, just in case (this MT...)
+                    event.cleanup();
+                }
             }
+
+            // if need_cleanup{
+            //     let event = unsafe {(*new_position.chunk).event()};
+            //     event.cleanup();
+            // }
         }
 
         // 2. Update EventReader chunk+index
