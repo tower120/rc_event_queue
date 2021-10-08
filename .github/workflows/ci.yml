@@ -17,6 +17,13 @@ jobs:
     - name: Build
       run: RUSTFLAGS="--deny warnings" cargo build
 
+  build-all-features:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build with all features
+      run: RUSTFLAGS="--deny warnings" cargo build --all-features
+
   tests:
     runs-on: ubuntu-latest
     steps:
