@@ -21,7 +21,7 @@ Have VERY low CPU + memory overhead. Most of the time reader just do 1 atomic lo
 #### Single-threaded.
 
 Read - close to `VecDeque`! Write:
-- `mpmc` - `push` 4x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
+- `mpmc` - `push` 2x slower then `VecDeque`. `extend` with at least 4 items, close to `VecDeque`. 
 - `spmc` - equal to `VecDeque`!
 
 #### Multi-threaded. 
