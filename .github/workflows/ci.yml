@@ -24,6 +24,19 @@ jobs:
     - name: Run tests
       run: cargo test --all-features
 
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+    - uses: actions-rs/components-nightly@v1
+      with:
+        component: miri
+    - name: Miri tests
+      run: cargo +nightly miri test
+
   benches:
     runs-on: ubuntu-latest
     steps:
