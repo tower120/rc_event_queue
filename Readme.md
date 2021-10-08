@@ -143,4 +143,4 @@ without alloc/dealloc.
 
 ### Soundness
 
-`EventQueue` covered with tests. Also [loom](https://github.com/tokio-rs/loom) tests. See [doc/tests.md](doc/tests.md)
+`EventQueue` covered with tests. [Miri](https://github.com/rust-lang/miri) tests. [Loom](https://github.com/tokio-rs/loom) tests. See [doc/tests.md](doc/tests.md)
