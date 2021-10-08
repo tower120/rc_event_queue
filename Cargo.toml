@@ -16,6 +16,7 @@ double_buffering = []
 [dependencies]
 #parking_lot = "0.11.2"
 spin = {version ="0.9.2", features = ["std"] }
+lock_api = "0.4.5"
 
 [dev-dependencies]
 itertools = "0.10.1"

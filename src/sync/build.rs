@@ -48,7 +48,7 @@ pub(crate) use std::sync::Arc;
 
 #[cfg(not(loom))]
 //pub(crate) use parking_lot::{Mutex};
-pub(crate) use spin::lock_api::Mutex;
+pub(crate) type Mutex<T> = lock_api::Mutex<spin::mutex::Mutex<(), spin::relax::Yield>, T>;
 
 #[cfg(not(loom))]
 pub(crate) use spin::mutex::{SpinMutex};
