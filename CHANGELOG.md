@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+### Added
+- miri support
+
 ## 0.4.0
 ### Added
 - `spmc` version
