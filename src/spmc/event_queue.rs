@@ -33,24 +33,26 @@ impl<T, S: Settings> EventQueue<T, S>{
 
     // without lock
     #[inline]
-    pub(crate) fn get_list(&self) -> &mut List<T, BS<S>> {
-        unsafe{
-            let base_ptr = Arc::as_ptr(&self.0);
-            let base = &mut *(base_ptr as *mut BaseEventQueue<T, BS<S>>);
-            base.list.get_mut()
-        }
+    pub(crate) fn get_list(&self) -> &List<T, BS<S>> {
+        unsafe{ &*self.0.list.data_ptr() }
+    }
+    // should be &mut self ... But... self-references comes later...
+    #[inline]
+    pub(crate) fn get_list_mut(&self) -> &mut List<T, BS<S>> {
+        unsafe{ &mut *self.0.list.data_ptr() }
     }
 
     #[inline]
     pub fn push(&mut self, value: T){
-        self.0.push(self.get_list(), value);
+        let list = self.get_list_mut();
+        self.0.push(list, value);
     }
 
     #[inline]
     pub fn extend<I>(&mut self, iter: I)
         where I: IntoIterator<Item = T>
     {
-        self.0.extend(self.get_list(), iter);
+        self.0.extend(self.get_list_mut(), iter);
     }
 
     #[inline]
@@ -60,17 +62,17 @@ impl<T, S: Settings> EventQueue<T, S>{
 
     #[inline]
     pub fn clear(&mut self){
-        self.0.clear(self.get_list());
+        self.0.clear(self.get_list_mut());
     }
 
     #[inline]
     pub fn truncate_front(&mut self, len: usize){
-        self.0.truncate_front(self.get_list(), len);
+        self.0.truncate_front(self.get_list_mut(), len);
     }
 
     #[inline]
     pub fn change_chunk_capacity(&mut self, new_capacity: u32){
-        self.0.change_chunk_capacity(self.get_list(), new_capacity);
+        self.0.change_chunk_capacity(self.get_list_mut(), new_capacity);
     }
 
     #[inline]

@@ -4,8 +4,8 @@
 //
 
 use crate::sync::Ordering;
-use std::ptr::null_mut;
-use crate::event_queue::{CleanupMode, foreach_chunk, Settings};
+use std::ptr::{NonNull, null_mut};
+use crate::event_queue::{CleanupMode, EventQueue, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
 use std::mem::MaybeUninit;
@@ -121,7 +121,12 @@ impl<T, S: Settings> EventReader<T, S>
 
 impl<T, S: Settings> Drop for EventReader<T, S>{
     fn drop(&mut self) {
-        unsafe { (*self.position.chunk).event().unsubscribe(self); }
+        unsafe {
+            EventQueue::<T, S>::unsubscribe(
+                NonNull::from((*self.position.chunk).event()),
+                self
+            );
+        }
     }
 }
 

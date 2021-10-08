@@ -96,7 +96,9 @@ mod test{
     fn pack_unpack_fuzzy_test(){
         let mut rng = rand::thread_rng();
 
-        for _ in 0..100000{
+        let len =
+            if cfg!(miri){ 1000 } else { 100000 };
+        for _ in 0..len{
             let state = ChunkState{
                 len: rng.gen_range(0 .. u32::MAX),
                 epoch: StartPositionEpoch::new(rng.gen_range(0 .. u32::MAX/2)),
@@ -126,7 +128,9 @@ mod test{
     fn setters_fuzzy_test(){
         let mut rng = rand::thread_rng();
 
-        for _ in 0..100000{
+        let len =
+            if cfg!(miri){ 1000 } else { 100000 };
+        for _ in 0..len{
             let state1 = ChunkState{
                 len: rng.gen_range(0 .. u32::MAX),
                 epoch: StartPositionEpoch::new(rng.gen_range(0 .. u32::MAX/2)),

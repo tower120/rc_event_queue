@@ -17,6 +17,7 @@ fn basic_test(){
 }
 
 #[test]
+#[cfg(not(miri))]
 fn mt_write_read_test() {
 for _ in 0..100{
     let queue_size = 10000;

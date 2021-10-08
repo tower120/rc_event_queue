@@ -117,7 +117,10 @@ fn huge_push_test() {
     let event = EventQueue::<usize, S>::new();
     let mut reader = EventReader::new(&event);
 
-    for i in 0..100000{
+    let len =
+        if cfg!(miri){ 1000 } else { 100000 };
+
+    for i in 0..len{
         event.push(i);
     }
 
@@ -135,7 +138,9 @@ fn extend_test() {
     let event = EventQueue::<usize, S>::new();
     let mut reader = EventReader::new(&event);
 
-    let rng : Range<usize> = 0..100000;
+    let len =
+        if cfg!(miri){ 1000 } else { 100000 };
+    let rng : Range<usize> = 0..len;
 
     event.extend(rng.clone());
 
@@ -173,6 +178,7 @@ fn clear_test() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn mt_read_test() {
     for _ in 0..10{
         struct S{} impl Settings for S{
@@ -185,6 +191,7 @@ fn mt_read_test() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn mt_write_read_test() {
 for _ in 0..100{
     let writer_chunk = 10000;
