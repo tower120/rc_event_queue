@@ -6,7 +6,7 @@ use crate::sync::{Ordering, AtomicUsize};
 use crate::sync::{Mutex, Arc};
 use crate::sync::{SpinMutex};
 
-use std::ptr::{null_mut, null};
+use std::ptr::{null_mut, null, NonNull};
 use crate::event_reader::EventReader;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::{Continue, Break};
@@ -171,7 +171,7 @@ impl<T, S: Settings> EventQueue<T, S>
 
     #[inline]
     fn add_chunk(&self, list: &mut List<T, S>) -> &mut DynamicChunk<T, S>{
-        let node = unsafe{&mut *list.last};
+        let node = unsafe{&*list.last};
 
         self.on_new_chunk_cleanup(list);
 
@@ -269,8 +269,12 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     // Called from EventReader Drop
-    pub(crate) fn unsubscribe(&self, event_reader: &EventReader<T, S>){
-        let mut list = self.list.lock();
+    //
+    // `this_ptr` instead of `&self`, because `&self` as reference should be valid during
+    // function call. And we drop it sometimes.... through `Arc::decrement_strong_count`.
+    pub(crate) fn unsubscribe(this_ptr: NonNull<Self>, event_reader: &EventReader<T, S>){
+        let this = unsafe { this_ptr.as_ref() };
+        let mut list = this.list.lock();
 
         // -1 read_completely_times for each chunk that reader passed
         unsafe {
@@ -287,16 +291,16 @@ impl<T, S: Settings> EventQueue<T, S>
             );
         }
 
-        let prev_readers = self.readers.fetch_sub(1, Ordering::Relaxed);
+        let prev_readers = this.readers.fetch_sub(1, Ordering::Relaxed);
 
         if S::CLEANUP_IN_UNSUBSCRIBE && S::CLEANUP != CleanupMode::Never{
-            self.cleanup_impl(&mut *list);
+            this.cleanup_impl(&mut *list);
         }
 
+        drop(list);
         if prev_readers == 1{
-            std::mem::drop(list);
             // Safe to self-destruct
-            unsafe { Arc::decrement_strong_count(self); }
+            unsafe { Arc::decrement_strong_count(this_ptr.as_ptr()); }
         }
     }
 
@@ -324,10 +328,14 @@ impl<T, S: Settings> EventQueue<T, S>
     fn cleanup_impl(&self, list: &mut List<T, S>){
         let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
-            foreach_chunk(
+            // using _ptr version, because with &chunk - reference should be valid during whole
+            // lambda function call. (according to miri and some rust borrowing rules).
+            // And we actually drop that chunk.
+            foreach_chunk_ptr_mut(
                 list.first,
                 list.last,
-                |chunk| {
+                |chunk_ptr| {
+                    let chunk = &mut *chunk_ptr;
                     if chunk.read_completely_times().load(Ordering::Acquire) != readers_count{
                         return Break(());
                     }
@@ -336,7 +344,7 @@ impl<T, S: Settings> EventQueue<T, S>
                     debug_assert!(!next_chunk_ptr.is_null());
 
                     debug_assert!(std::ptr::eq(chunk, list.first));
-                    Self::free_chunk(list.first, list);
+                    Self::free_chunk(chunk, list);
                     list.first = next_chunk_ptr;
 
                     Continue(())
@@ -431,7 +439,7 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 
-    pub fn total_capacity(&self, list: &mut List<T, S>) -> usize {
+    pub fn total_capacity(&self, list: &List<T, S>) -> usize {
         let mut total = 0;
         unsafe {
             foreach_chunk(
@@ -446,7 +454,7 @@ impl<T, S: Settings> EventQueue<T, S>
         total
     }
 
-    pub fn chunk_capacity(&self, list: &mut List<T, S>) -> usize {
+    pub fn chunk_capacity(&self, list: &List<T, S>) -> usize {
         unsafe { (*list.last).capacity() }
     }
 
@@ -501,6 +509,23 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
 )
     where F: FnMut(&mut DynamicChunk<T, S>) -> ControlFlow<()>
 {
+    foreach_chunk_ptr_mut(
+        start_chunk_ptr,
+        end_chunk_ptr,
+        |mut_chunk_ptr| func(&mut *mut_chunk_ptr)
+    );
+}
+
+/// end_chunk_ptr may be null
+#[inline(always)]
+pub(super) unsafe fn foreach_chunk_ptr_mut<T, F, S: Settings>
+(
+    start_chunk_ptr : *mut DynamicChunk<T, S>,
+    end_chunk_ptr   : *const DynamicChunk<T, S>,
+    mut func : F
+)
+    where F: FnMut(*mut DynamicChunk<T, S>) -> ControlFlow<()>
+{
     debug_assert!(!start_chunk_ptr.is_null());
     debug_assert!(
         end_chunk_ptr.is_null()
@@ -513,11 +538,10 @@ pub(super) unsafe fn foreach_chunk_mut<T, F, S: Settings>
             break;
         }
 
-        let chunk = &mut *chunk_ptr;
         // chunk can be dropped inside `func`, so fetch `next` beforehand
-        let next_chunk_ptr = chunk.next(Ordering::Acquire);
+        let next_chunk_ptr = (*chunk_ptr).next(Ordering::Acquire);
 
-        let proceed = func(chunk);
+        let proceed = func(chunk_ptr);
         if proceed == Break(()) {
             break;
         }

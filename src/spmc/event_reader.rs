@@ -9,7 +9,7 @@ pub struct EventReader<T, S: Settings>(BaseEventReader<T, BS<S>>);
 impl<T, S: Settings> EventReader<T, S>{
     #[inline]
     pub fn new(event_queue: &mut EventQueue<T, S>) -> Self {
-        Self{0: event_queue.0.subscribe(event_queue.get_list())}
+        Self{0: event_queue.0.subscribe(event_queue.get_list_mut())}
     }
 
     #[inline]

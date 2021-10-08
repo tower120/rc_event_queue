@@ -1,14 +1,15 @@
 use std::ops::{Add};
 
 #[inline(always)]
+#[allow(unreachable_code)]
 pub fn bittest_u64<const N: u8>(value: u64) -> bool {
-    #[allow(unreachable_code)]
+    #[cfg(not(miri))]
     unsafe {
         #[cfg(target_arch = "x86_64")]
         return core::arch::x86_64::_bittest64(&(value as i64), N as i64) != 0;
-
-        return value & (1 << N) != 0;
     }
+
+    return value & (1 << N) != 0;
 }
 #[inline(always)]
 #[must_use]

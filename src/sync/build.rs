@@ -25,6 +25,14 @@ impl<T> Mutex<T>{
             &mut *(self.0.lock().unwrap().deref_mut() as *mut T)
         }
     }
+
+    pub fn data_ptr(&self) -> *mut T {
+        // There is no way to get without lock in loom
+        unsafe{
+            use std::ops::DerefMut;
+            self.0.lock().unwrap().deref_mut() as *mut T
+        }
+    }
 }
 
 #[cfg(loom)]
