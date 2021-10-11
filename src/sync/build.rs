@@ -6,7 +6,7 @@ pub(crate) use loom::sync::Arc;
 
 #[cfg(loom)]
 #[derive(Debug)]
-pub(crate) struct Mutex<T>(loom::sync::Mutex<T>);
+pub struct Mutex<T>(loom::sync::Mutex<T>);
 
 #[cfg(loom)]
 impl<T> Mutex<T>{
@@ -36,7 +36,7 @@ impl<T> Mutex<T>{
 }
 
 #[cfg(loom)]
-pub(crate) type SpinMutex<T> = Mutex<T>;
+pub type SpinMutex<T> = Mutex<T>;
 
 // ==========================================================================================
 
