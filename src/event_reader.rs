@@ -4,7 +4,7 @@
 //
 
 use crate::sync::Ordering;
-use std::ptr::{NonNull, null_mut};
+use std::ptr::{NonNull};
 use crate::event_queue::{CleanupMode, EventQueue, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
