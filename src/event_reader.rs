@@ -21,57 +21,8 @@ unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
 
 impl<T, S: Settings> EventReader<T, S>
 {
-    // TODO: move to Iter
     #[inline]
-    pub(super) fn mark_span_read(
-        &mut self,
-        new_position: Cursor<T, S>,
-        try_cleanup: bool   /*should be generic const*/
-    ){
-        debug_assert!(new_position >= self.position);
-        let mut first_chunk_readed = 0;
-
-        // 1. Mark passed chunks as read
-        unsafe {
-            foreach_chunk(
-                self.position.chunk,
-                new_position.chunk,
-                Ordering::Acquire,
-                |chunk| {
-                    debug_assert!(
-                        !chunk.next(Ordering::Acquire).is_null()
-                    );
-                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
-
-                    if try_cleanup {
-                        if first_chunk_readed == 0{
-                            first_chunk_readed = prev_read+1;
-                        }
-                    }
-
-                    Continue(())
-                }
-            );
-        }
-
-        // Cleanup (optional)
-        if try_cleanup {
-            if first_chunk_readed != 0{
-                let first_chunk = unsafe{&*self.position.chunk};
-                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);
-                // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
-                if first_chunk_readed >= first_chunk_readers {
-                    first_chunk.event().cleanup();
-                }
-            }
-        }
-
-        // 2. Update EventReader chunk+index
-        self.position = new_position;
-    }
-
-    #[inline]
-    pub(super) fn fast_forward(
+    fn fast_forward(
         &mut self,
         new_position: Cursor<T, S>,
         try_cleanup: bool   /*should be generic const*/
@@ -221,9 +172,47 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
 impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
     #[inline]
     fn drop(&mut self) {
-        self.event_reader.mark_span_read(
-            self.position,
-            S::CLEANUP == CleanupMode::OnChunkRead
-        );
+        let try_cleanup = S::CLEANUP == CleanupMode::OnChunkRead;   // should be const
+
+        debug_assert!(self.position >= self.event_reader.position);
+        let mut first_chunk_readed = 0;
+
+        // 1. Mark passed chunks as read
+        unsafe {
+            foreach_chunk(
+                self.event_reader.position.chunk,
+                self.position.chunk,
+                Ordering::Acquire,
+                |chunk| {
+                    debug_assert!(
+                        !chunk.next(Ordering::Acquire).is_null()
+                    );
+                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+
+                    if try_cleanup {
+                        if first_chunk_readed == 0{
+                            first_chunk_readed = prev_read+1;
+                        }
+                    }
+
+                    Continue(())
+                }
+            );
+        }
+
+        // Cleanup (optional)
+        if try_cleanup {
+            if first_chunk_readed != 0{
+                let first_chunk = unsafe{&*self.event_reader.position.chunk};
+                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);
+                // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
+                if first_chunk_readed >= first_chunk_readers {
+                    first_chunk.event().cleanup();
+                }
+            }
+        }
+
+        // 2. Update EventReader chunk+index
+        self.event_reader.position = self.position;
     }
 }
