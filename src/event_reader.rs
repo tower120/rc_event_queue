@@ -58,7 +58,7 @@ impl<T, S: Settings> EventReader<T, S>
         if try_cleanup {
             if first_chunk_readed != 0{
                 let first_chunk = unsafe{&*self.position.chunk};
-                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);\
+                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);
                 // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
                 if first_chunk_readed >= first_chunk_readers {
                     first_chunk.event().cleanup();
