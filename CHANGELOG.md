@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+### Changed
+- subscribe/unsubscribe now O(1).
+
+## 0.4.1
 ### Added
 - miri support
 ### Changed

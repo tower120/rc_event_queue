@@ -38,10 +38,14 @@ pub trait Settings{
     const MAX_CHUNK_SIZE : u32;
     const CLEANUP        : CleanupMode;
 
+    // for spmc/mpmc
     /// Lock on new chunk cleanup event. Will dead-lock if already locked.
     const LOCK_ON_NEW_CHUNK_CLEANUP: bool;
     /// Call cleanup on unsubscribe?
     const CLEANUP_IN_UNSUBSCRIBE: bool;
+
+    // for emergency_cleanup
+    const TRACK_CHUNK_ENTER_COUNT: bool = false;
 }
 
 pub struct List<T, S: Settings>{
@@ -250,22 +254,14 @@ impl<T, S: Settings> EventQueue<T, S>
 
         let last_chunk = unsafe{&*list.last};
         let chunk_state = last_chunk.chunk_state(Ordering::Relaxed);
-        let last_chunk_len = chunk_state.len();
-        let epoch = chunk_state.epoch();
 
-        let mut event_reader = EventReader{
-            position: Cursor{chunk: list.first, index: 0},
-            start_position_epoch: epoch
-        };
+        // Enter chunk
+        last_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
 
-        // Move to an end. This will increment read_completely_times in all passed chunks correctly.
-        event_reader.set_forward_position(
-            Cursor{
-                chunk: last_chunk,
-                index: last_chunk_len as usize
-            },
-            false);
-        event_reader
+        EventReader{
+            position: Cursor{chunk: last_chunk, index: chunk_state.len() as usize},
+            start_position_epoch: chunk_state.epoch()
+        }
     }
 
     // Called from EventReader Drop
@@ -276,28 +272,16 @@ impl<T, S: Settings> EventQueue<T, S>
         let this = unsafe { this_ptr.as_ref() };
         let mut list = this.list.lock();
 
-        // -1 read_completely_times for each chunk that reader passed
-        unsafe {
-            foreach_chunk(
-                list.first,
-                event_reader.position.chunk,
-                Ordering::Relaxed,      // we're under mutex
-                |chunk| {
-                    debug_assert!(
-                        !chunk.next(Ordering::Acquire).is_null()
-                    );
-                    chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
-                    Continue(())
-                }
-            );
+        // Exit chunk
+        unsafe{&*event_reader.position.chunk}.read_completely_times().fetch_add(1, Ordering::AcqRel);
+
+        if S::CLEANUP_IN_UNSUBSCRIBE && S::CLEANUP != CleanupMode::Never{
+            if list.first as *const _ == event_reader.position.chunk {
+                this.cleanup_impl(&mut *list);
+            }
         }
 
         let prev_readers = this.readers.fetch_sub(1, Ordering::Relaxed);
-
-        if S::CLEANUP_IN_UNSUBSCRIBE && S::CLEANUP != CleanupMode::Never{
-            this.cleanup_impl(&mut *list);
-        }
-
         drop(list);
         if prev_readers == 1{
             // Safe to self-destruct
@@ -327,7 +311,6 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     fn cleanup_impl(&self, list: &mut List<T, S>){
-        let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             // using _ptr version, because with &chunk - reference should be valid during whole
             // lambda function call. (according to miri and some rust borrowing rules).
@@ -338,7 +321,10 @@ impl<T, S: Settings> EventQueue<T, S>
                 Ordering::Relaxed,      // we're under mutex
                 |chunk_ptr| {
                     let chunk = &mut *chunk_ptr;
-                    if chunk.read_completely_times().load(Ordering::Acquire) != readers_count{
+                    let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
+                    let chunk_read = chunk.read_completely_times().load(Ordering::Acquire);
+                    // Cleanup only in order
+                    if chunk_readers != chunk_read {
                         return Break(());
                     }
 
@@ -402,6 +388,8 @@ impl<T, S: Settings> EventQueue<T, S>
             list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         };
 
+        // TODO: use small_vec
+        // TODO: loop if > 128
         // there is no way we can have memory enough to hold > 2^64 bytes.
         debug_assert!(chunks_count<=128);
         let mut chunks : [*const DynamicChunk<T, S>; 128] = [null(); 128];

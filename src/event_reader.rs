@@ -21,14 +21,15 @@ unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
 
 impl<T, S: Settings> EventReader<T, S>
 {
+    // TODO: move to Iter
     #[inline]
-    pub(super) fn set_forward_position(
+    pub(super) fn mark_span_read(
         &mut self,
         new_position: Cursor<T, S>,
         try_cleanup: bool   /*should be generic const*/
     ){
         debug_assert!(new_position >= self.position);
-        let mut first_chunk_readers = 0;
+        let mut first_chunk_readed = 0;
 
         // 1. Mark passed chunks as read
         unsafe {
@@ -43,8 +44,8 @@ impl<T, S: Settings> EventReader<T, S>
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
                     if try_cleanup {
-                        if first_chunk_readers == 0{
-                            first_chunk_readers = prev_read+1;
+                        if first_chunk_readed == 0{
+                            first_chunk_readed = prev_read+1;
                         }
                     }
 
@@ -55,16 +56,41 @@ impl<T, S: Settings> EventReader<T, S>
 
         // Cleanup (optional)
         if try_cleanup {
-            if first_chunk_readers != 0{
-                let event = unsafe {&*(*new_position.chunk).event()};
-                let readers_count = event.readers.load(Ordering::Acquire);
-                if first_chunk_readers >= readers_count{    // MORE or equal, just in case (this MT...)
-                    event.cleanup();
+            if first_chunk_readed != 0{
+                let first_chunk = unsafe{&*self.position.chunk};
+                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);\
+                // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
+                if first_chunk_readed >= first_chunk_readers {
+                    first_chunk.event().cleanup();
                 }
             }
         }
 
         // 2. Update EventReader chunk+index
+        self.position = new_position;
+    }
+
+    #[inline]
+    pub(super) fn fast_forward(
+        &mut self,
+        new_position: Cursor<T, S>,
+        try_cleanup: bool   /*should be generic const*/
+    ){
+        // 1. Enter new_position chunk
+        let new_chunk = unsafe{&*new_position.chunk};
+        new_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
+
+        // 2. Mark current chunk read
+        let chunk = unsafe{&*self.position.chunk};
+        let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+        if try_cleanup {
+            // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
+            if prev_read+1 >= chunk.readers_entered().load(Ordering::Acquire){
+                chunk.event().cleanup();
+            }
+        }
+
+        // 3. Change position
         self.position = new_position;
     }
 
@@ -76,7 +102,7 @@ impl<T, S: Settings> EventReader<T, S>
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position(
+            self.fast_forward(
                 new_start_position,
                 S::CLEANUP == CleanupMode::OnChunkRead
             );
@@ -91,7 +117,7 @@ impl<T, S: Settings> EventReader<T, S>
         let chunk_state = unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire);
         let epoch = chunk_state.epoch();
 
-        if epoch != self.start_position_epoch {
+        if /*unlikely*/ epoch != self.start_position_epoch {
             self.start_position_epoch = epoch;
             self.do_update_start_position_and_get_chunk_state()
         } else {
@@ -163,17 +189,18 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
                 return None;
             }
 
-            // have next chunk?
-            let next_chunk = unsafe{&*self.position.chunk}.next(Ordering::Acquire);
-            if next_chunk == null_mut(){
-                return None;
-            }
+            // acquire next chunk
+            let next_chunk = unsafe{
+                let next = (*self.position.chunk).next(Ordering::Acquire);
+                debug_assert!(!next.is_null());
+                &*next
+            };
+            next_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
 
-            // switch chunk
+            // iterator switch chunk
             self.position.chunk = next_chunk;
             self.position.index = 0;
-
-            self.chunk_state = unsafe{&*next_chunk}.chunk_state(Ordering::Acquire);
+            self.chunk_state = next_chunk.chunk_state(Ordering::Acquire);
 
             // Maybe 0, when new chunk is created, but item still not pushed.
             // It is possible rework `push`/`extend` in the way that this situation will not exists.
@@ -194,7 +221,7 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
 impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
     #[inline]
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(
+        self.event_reader.mark_span_read(
             self.position,
             S::CLEANUP == CleanupMode::OnChunkRead
         );
