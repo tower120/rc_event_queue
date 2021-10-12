@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod test;
 
-use crate::sync::{Ordering, AtomicUsize};
+use crate::sync::{Ordering};
 use crate::sync::{Mutex, Arc};
 use crate::sync::{SpinMutex};
 
