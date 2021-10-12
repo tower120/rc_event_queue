@@ -53,6 +53,8 @@ pub struct List<T, S: Settings>{
     last : *mut DynamicChunk<T, S>,
     chunk_id_counter: usize,
 
+    readers_count: usize,
+
     /// 0 - means no penult
     penult_chunk_size: u32,
 
@@ -63,10 +65,6 @@ pub struct List<T, S: Settings>{
 
 pub struct EventQueue<T, S: Settings>{
     pub(crate) list  : Mutex<List<T, S>>,
-
-    /// All atomic op relaxed. Just to speed up `try_clean` check (opportunistic check).
-    /// Mutated under list lock.
-    pub(crate) readers: AtomicUsize,
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
@@ -88,13 +86,12 @@ impl<T, S: Settings> EventQueue<T, S>
                 first: null_mut(),
                 last: null_mut(),
                 chunk_id_counter: 0,
-
+                readers_count:0,
                 penult_chunk_size : 0,
 
                 #[cfg(feature = "double_buffering")]
                 free_chunk: None,
             }),
-            readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: null(), index:0}),
             _pinned: PhantomPinned,
         });
@@ -246,11 +243,11 @@ impl<T, S: Settings> EventQueue<T, S>
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
     pub fn subscribe(&self, list: &mut List<T, S>) -> EventReader<T, S>{
-        let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
-        if prev_readers == 0{
+        if list.readers_count == 0{
             // Keep alive. Decrements in unsubscribe
             unsafe { Arc::increment_strong_count(self); }
         }
+        list.readers_count += 1;
 
         let last_chunk = unsafe{&*list.last};
         let chunk_state = last_chunk.chunk_state(Ordering::Relaxed);
@@ -281,9 +278,9 @@ impl<T, S: Settings> EventQueue<T, S>
             }
         }
 
-        let prev_readers = this.readers.fetch_sub(1, Ordering::Relaxed);
-        drop(list);
-        if prev_readers == 1{
+        list.readers_count -= 1;
+        if list.readers_count == 0{
+            drop(list);
             // Safe to self-destruct
             unsafe { Arc::decrement_strong_count(this_ptr.as_ptr()); }
         }
@@ -514,7 +511,7 @@ impl<T, S: Settings> EventQueue<T, S>
 impl<T, S: Settings> Drop for EventQueue<T, S>{
     fn drop(&mut self) {
         let list = self.list.get_mut();
-        debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
+        debug_assert!(list.readers_count == 0);
         unsafe{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
