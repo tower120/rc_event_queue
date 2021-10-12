@@ -12,9 +12,6 @@ Fast, concurrent FIFO event queue _(or message queue)_. Multiple consumers recei
 Write operations never block read operations. Performance consumer oriented. Mostly contiguous memory layout. 
 Memory consumption does not grow with readers number.
 
-**!! Important note !!** In order to use this in practice - your readers need at least sometimes to be alive, or you need a way to touch them.
-They don't need to actually consume - just calling `iter()`/`update_position()` is enough. See [Emergency cut](#emergency-cut).
-
 ### Performance
 
 Have VERY low CPU + memory overhead. Most of the time reader just do 1 atomic load per `iter()` call. That's all! 
@@ -79,7 +76,7 @@ assert!(sum(reader1.iter()) == 55);
 assert!(sum(reader2.iter()) == 55);
 ```
 
-"soft clear":
+clear:
 ```rust
 event.push(1);
 event.push(10);
@@ -90,7 +87,8 @@ event.push(1000);
 assert!(sum(reader1.iter()) == 1100);
 assert!(sum(reader2.iter()) == 1100);
 ```
-Where "soft" - means that any queue-cut operations does not free memory immediately. Readers should be touched for this first.
+
+`clear`/`truncate_front` have peculiarities - chunks occupied by readers, will not be freed immediately.
 
 ### Emergency cut
 
@@ -100,10 +98,17 @@ and if it grows too much - you may want to force-cut/clear it.
 
 ```rust
 if event.total_capacity() > 100000{
+    // This will not free chunks occupied by readers, but will free the rest.
+    // This should be enough, to prevent memory leak, in case if some readers
+    // stop consume unexpectedly.
     event.truncate_front(1000);     // leave some of the latest messages to read
-    event.change_chunk_size(2048);  // reduce size of the active chunk
+    
+    // If you set to Settings::MAX_CHUNK_SIZE to high value,
+    // This will reduce chunk size on next writes.
+    event.change_chunk_size(2048);
 
-    // Now the tricky part - you need to have access to all readers
+    // If you do have access to all readers - this will move readers forward,
+    // and free the rest of the chunks.
     for reader in readers{
         reader.update_position();
         // reader.iter();   // this have same effect as above
