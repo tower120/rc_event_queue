@@ -2,7 +2,9 @@
 
 ## Unreleased
 ### Changed
-- subscribe/unsubscribe now O(1).
+- clear/truncate_front now cleanup chunks not affected by readers immediately! Which, at least partially, solves "emergency cleanup" problem.
+Now you don't have to have access to all readers!  
+- Subscribe/unsubscribe now O(1).
 
 ## 0.4.1
 ### Added
