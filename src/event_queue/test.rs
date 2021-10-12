@@ -118,6 +118,38 @@ fn truncate_front_test(){
 }
 
 #[test]
+fn force_cleanup_test(){
+    struct S{} impl Settings for S{
+        const MIN_CHUNK_SIZE: u32 = 4;
+        const MAX_CHUNK_SIZE: u32 = 4;
+    }
+    // clear force cleanup effect
+    {
+        let event = EventQueue::<usize, S>::new();
+        let mut _reader = EventReader::new(&event);
+
+        event.extend(0..16);
+        assert_equal(get_chunks_capacities(&event), [4,4,4,4]);
+
+        event.clear();
+        // first - because occupied by reader, last - because tip of the queue
+        assert_equal(get_chunks_capacities(&event), [4, 4]);
+    }
+    // truncate force cleanup effect
+    {
+        let event = EventQueue::<usize, S>::new();
+        let mut _reader = EventReader::new(&event);
+
+        event.extend(0..20);
+        assert_equal(get_chunks_capacities(&event), [4,4,4,4,4]);
+
+        event.truncate_front(6);
+        // first + 2 last
+        assert_equal(get_chunks_capacities(&event), [4,4,4]);
+    }
+}
+
+#[test]
 fn capacity_test(){
     let event = EventQueue::<usize, S>::new();
 

@@ -322,9 +322,9 @@ impl<T, S: Settings> EventQueue<T, S>
                 |chunk_ptr| {
                     let chunk = &mut *chunk_ptr;
                     let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
-                    let chunk_read = chunk.read_completely_times().load(Ordering::Acquire);
+                    let chunk_read_times = chunk.read_completely_times().load(Ordering::Acquire);
                     // Cleanup only in order
-                    if chunk_readers != chunk_read {
+                    if chunk_readers != chunk_read_times {
                         return Break(());
                     }
 
@@ -341,6 +341,50 @@ impl<T, S: Settings> EventQueue<T, S>
         }
         if list.first == list.last{
             list.penult_chunk_size = 0;
+        }
+    }
+
+    /// This will traverse up to the start_point. And will do out-of-order cleanup.
+    /// This one slower.
+    fn force_cleanup_impl(&self, list: &mut List<T, S>){
+        self.cleanup_impl(list);
+        unsafe {
+            let terminal_chunk = (*self.start_position.as_mut_ptr()).chunk;
+            if terminal_chunk.is_null(){
+                return;
+            }
+            if (*list.first).id() >= (*terminal_chunk).id(){
+                return;
+            }
+
+            // cleanup_impl dealt with first chunk before. Omit.
+            let mut prev_chunk = list.first;
+            // using _ptr version, because with &chunk - reference should be valid during whole
+            // lambda function call. (according to miri and some rust borrowing rules).
+            // And we actually drop that chunk.
+            foreach_chunk_ptr_mut(
+                (*list.first).next(Ordering::Relaxed),
+                terminal_chunk,
+                Ordering::Relaxed,      // we're under mutex
+                |chunk| {
+                    let lock = (*prev_chunk).chunk_switch_mutex().write();
+                        let chunk_readers = (*chunk).readers_entered().load(Ordering::Acquire);
+                        let chunk_read_times = (*chunk).read_completely_times().load(Ordering::Acquire);
+                        if chunk_readers != chunk_read_times {
+                            prev_chunk = chunk;
+                            return Continue(());
+                        }
+
+                        let next_chunk_ptr = (*chunk).next(Ordering::Relaxed);
+                        debug_assert!(!next_chunk_ptr.is_null());
+
+                        (*prev_chunk).set_next(next_chunk_ptr, Ordering::Release);
+                    drop(lock);
+
+                    Self::free_chunk(chunk, list);
+                    Continue(())
+                }
+            );
         }
     }
 
@@ -380,6 +424,8 @@ impl<T, S: Settings> EventQueue<T, S>
             chunk: last_chunk,
             index: chunk_len
         });
+
+        self.force_cleanup_impl(list);
     }
 
     pub fn truncate_front(&self, list: &mut List<T, S>, len: usize) {
@@ -388,8 +434,9 @@ impl<T, S: Settings> EventQueue<T, S>
             list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         };
 
+        // TODO: subtract from total_capacity
         // TODO: use small_vec
-        // TODO: loop if > 128
+        // TODO: loop if > 128?
         // there is no way we can have memory enough to hold > 2^64 bytes.
         debug_assert!(chunks_count<=128);
         let mut chunks : [*const DynamicChunk<T, S>; 128] = [null(); 128];
@@ -417,6 +464,7 @@ impl<T, S: Settings> EventQueue<T, S>
                     chunk: chunks[i],
                     index: total_len - len
                 });
+                self.force_cleanup_impl(list);
                 return;
             }
         }
@@ -431,6 +479,8 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 
+    /// O(n)
+    /// TODO: store current capacity
     pub fn total_capacity(&self, list: &List<T, S>) -> usize {
         let mut total = 0;
         unsafe {
@@ -528,7 +578,13 @@ pub(super) unsafe fn foreach_chunk_ptr_mut<T, F, S: Settings>
     debug_assert!(
         end_chunk_ptr.is_null()
             ||
-        std::ptr::eq((*start_chunk_ptr).event(), (*end_chunk_ptr).event()));
+        std::ptr::eq((*start_chunk_ptr).event(), (*end_chunk_ptr).event())
+    );
+    debug_assert!(
+        end_chunk_ptr.is_null()
+            ||
+        (*start_chunk_ptr).id() <= (*end_chunk_ptr).id()
+    );
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){

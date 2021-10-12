@@ -142,11 +142,15 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
 
             // acquire next chunk
             let next_chunk = unsafe{
-                let next = (*self.position.chunk).next(Ordering::Acquire);
+                let chunk = &*self.position.chunk;
+                let _lock = chunk.chunk_switch_mutex().read();
+
+                let next = chunk.next(Ordering::Acquire);
                 debug_assert!(!next.is_null());
+
+                (*next).readers_entered().fetch_add(1, Ordering::AcqRel);
                 &*next
             };
-            next_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
 
             // iterator switch chunk
             self.position.chunk = next_chunk;

@@ -38,6 +38,9 @@ impl<T> Mutex<T>{
 #[cfg(loom)]
 pub type SpinMutex<T> = Mutex<T>;
 
+#[cfg(loom)]
+pub(crate) type SpinSharedMutex<T> = loom::sync::RwLock<T>;
+
 // ==========================================================================================
 
 #[cfg(not(loom))]
@@ -52,3 +55,6 @@ pub(crate) type Mutex<T> = lock_api::Mutex<spin::mutex::Mutex<(), spin::relax::Y
 
 #[cfg(not(loom))]
 pub(crate) use spin::mutex::{SpinMutex};
+
+#[cfg(not(loom))]
+pub(crate) use spin::rwlock::RwLock as SpinSharedMutex;

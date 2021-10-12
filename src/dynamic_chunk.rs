@@ -1,5 +1,5 @@
 use crate::dynamic_array::DynamicArray;
-use crate::sync::{Ordering, AtomicPtr, AtomicUsize, SpinMutex};
+use crate::sync::{Ordering, AtomicPtr, AtomicUsize, SpinMutex, SpinSharedMutex};
 use crate::event_queue::{EventQueue, Settings};
 use std::ptr::{null_mut, NonNull};
 use std::ptr;
@@ -18,7 +18,7 @@ struct Header<T, S: Settings>{
     pub(super) next    : AtomicPtr<DynamicChunk<T, S>>,
 
     /// locked in reader next chunk and emergency_cleanup
-    pub(super) chunk_switch_mutex : SpinMutex<()>,
+    pub(super) chunk_switch_mutex : SpinSharedMutex<()>,
     /// Grow only.
     pub(super) readers_entered: AtomicUsize,
 
@@ -66,7 +66,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
     }
 
     #[inline]
-    pub fn chunk_switch_mutex(&self) -> &SpinMutex<()>{
+    pub fn chunk_switch_mutex(&self) -> &SpinSharedMutex<()>{
         &self.0.header().chunk_switch_mutex
     }
 
@@ -94,7 +94,7 @@ impl<T, S: Settings> DynamicChunk<T, S>{
         let header = Header{
             id,
             next: AtomicPtr::new(null_mut()),
-            chunk_switch_mutex: SpinMutex::new(()),
+            chunk_switch_mutex: SpinSharedMutex::new(()),
             readers_entered: AtomicUsize::new(0),
             read_completely_times: AtomicUsize::new(0),
             event,
