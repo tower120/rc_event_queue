@@ -17,7 +17,7 @@ struct Header<T, S: Settings>{
     pub(super) id      : usize,
     pub(super) next    : AtomicPtr<DynamicChunk<T, S>>,
 
-    /// locked in reader next chunk and emergency_cleanup
+    /// locked in reader next chunk and force_cleanup
     pub(super) chunk_switch_mutex : SpinSharedMutex<()>,
     /// Grow only.
     pub(super) readers_entered: AtomicUsize,

@@ -43,9 +43,6 @@ pub trait Settings{
     const LOCK_ON_NEW_CHUNK_CLEANUP: bool;
     /// Call cleanup on unsubscribe?
     const CLEANUP_IN_UNSUBSCRIBE: bool;
-
-    // for emergency_cleanup
-    const TRACK_CHUNK_ENTER_COUNT: bool = false;
 }
 
 pub struct List<T, S: Settings>{
@@ -317,6 +314,7 @@ impl<T, S: Settings> EventQueue<T, S>
                 list.last,
                 Ordering::Relaxed,      // we're under mutex
                 |chunk_ptr| {
+                    // Do not lock prev_chunk.chunk_switch_mutex because we traverse in order.
                     let chunk = &mut *chunk_ptr;
                     let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
                     let chunk_read_times = chunk.read_completely_times().load(Ordering::Acquire);
@@ -364,6 +362,8 @@ impl<T, S: Settings> EventQueue<T, S>
                 terminal_chunk,
                 Ordering::Relaxed,      // we're under mutex
                 |chunk| {
+                    // We need to lock only `prev_chunk`, because it is impossible
+                    // to get in `chunk` omitting chunk.readers_entered+1
                     let lock = (*prev_chunk).chunk_switch_mutex().write();
                         let chunk_readers = (*chunk).readers_entered().load(Ordering::Acquire);
                         let chunk_read_times = (*chunk).read_completely_times().load(Ordering::Acquire);

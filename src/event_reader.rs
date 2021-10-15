@@ -33,12 +33,17 @@ impl<T, S: Settings> EventReader<T, S>
 
         // 2. Mark current chunk read
         let chunk = unsafe{&*self.position.chunk};
-        let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
-        if try_cleanup {
+        if /*constexpr*/ try_cleanup {
+            let event = chunk.event();
+            let readers_entered = chunk.readers_entered().load(Ordering::Acquire);
+
             // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
-            if prev_read+1 >= chunk.readers_entered().load(Ordering::Acquire){
-                chunk.event().cleanup();
+            let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+            if prev_read+1 >= readers_entered{
+                event.cleanup();
             }
+        } else {
+            chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
         }
 
         // 3. Change position
@@ -183,6 +188,8 @@ impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
 
         // 1. Mark passed chunks as read
         unsafe {
+            // It is ok here to switch chunks without chunk_switch_mutex.
+            // Chunk already held by in-out counter imbalance.
             foreach_chunk(
                 self.event_reader.position.chunk,
                 self.position.chunk,
