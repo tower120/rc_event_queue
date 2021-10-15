@@ -340,7 +340,7 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     /// This will traverse up to the start_point. And will do out-of-order cleanup.
-    /// This one slower.
+    /// This one slower then cleanup_impl.
     fn force_cleanup_impl(&self, list: &mut List<T, S>){
         self.cleanup_impl(list);
         unsafe {

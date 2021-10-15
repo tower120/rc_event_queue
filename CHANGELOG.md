@@ -2,7 +2,7 @@
 
 ## Unreleased
 ### Changed
-- clear/truncate_front now cleanup chunks not affected by readers immediately! Which, at least partially, solves "emergency cleanup" problem.
+- clear/truncate_front now dispose chunks not occupied by readers immediately! Which, at least partially, solves "emergency cleanup" problem.
 Now you don't have to have access to all readers!  
 - Subscribe/unsubscribe now O(1).
 

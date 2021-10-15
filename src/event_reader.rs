@@ -157,7 +157,7 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
                 &*next
             };
 
-            // iterator switch chunk
+            // switch chunk
             self.position.chunk = next_chunk;
             self.position.index = 0;
             self.chunk_state = next_chunk.chunk_state(Ordering::Acquire);
@@ -184,15 +184,18 @@ impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
         let try_cleanup = S::CLEANUP == CleanupMode::OnChunkRead;   // should be const
 
         debug_assert!(self.position >= self.event_reader.position);
-        let mut first_chunk_readed = 0;
+        let mut need_cleanup = false;
+
+        let first_chunk = self.event_reader.position.chunk;
+        let end_chunk = self.position.chunk;
 
         // 1. Mark passed chunks as read
         unsafe {
             // It is ok here to switch chunks without chunk_switch_mutex.
             // Chunk already held by in-out counter imbalance.
             foreach_chunk(
-                self.event_reader.position.chunk,
-                self.position.chunk,
+                first_chunk,
+                end_chunk,
                 Ordering::Acquire,
                 |chunk| {
                     debug_assert!(
@@ -201,8 +204,13 @@ impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
                     let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
                     if try_cleanup {
-                        if first_chunk_readed == 0{
-                            first_chunk_readed = prev_read+1;
+                        // TODO: move out of loop and benchmark.
+                        if chunk as *const _ == first_chunk{
+                            let read = prev_read+1;
+                            let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
+                            if read >= chunk_readers {
+                                need_cleanup = true;
+                            }
                         }
                     }
 
@@ -213,13 +221,8 @@ impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
 
         // Cleanup (optional)
         if try_cleanup {
-            if first_chunk_readed != 0{
-                let first_chunk = unsafe{&*self.event_reader.position.chunk};
-                let first_chunk_readers = first_chunk.readers_entered().load(Ordering::Acquire);
-                // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
-                if first_chunk_readed >= first_chunk_readers {
-                    first_chunk.event().cleanup();
-                }
+            if need_cleanup{
+                unsafe{&*end_chunk}.event().cleanup();
             }
         }
 
