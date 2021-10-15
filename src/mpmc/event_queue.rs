@@ -53,12 +53,12 @@ impl<T, S: Settings> EventQueue<T, S>{
     /// "Lazily move" all readers positions to the "end of the queue". From readers perspective,
     /// equivalent to conventional `clear`.
     ///
-    /// Does not free memory by itself - all readers need to be touched to free the memory.
+    /// Immediately free all **unoccupied** chunks.
     ///
     /// "End of the queue" - is the queue's end position at the moment of the `clear` call.
     ///
-    /// "Lazy move" - means that reader actually change position and mark passed chunks,
-    /// as "read", only when actual read starts.
+    /// "Lazy move" - means that reader actually change position and free occupied chunk,
+    /// only when actual read starts.
     #[inline]
     pub fn clear(&self){
         let mut list = self.0.list.lock();
@@ -68,10 +68,10 @@ impl<T, S: Settings> EventQueue<T, S>{
     /// "Lazily move" all readers positions to the `len`-th element from the end of the queue.
     /// From readers perspective, equivalent to conventional `truncate` from the other side.
     ///
-    /// Does not free memory by itself - all readers need to be touched to free memory.
+    /// Immediately free **unoccupied** chunks.
     ///
-    /// "Lazy move" - means that reader actually change position and mark passed chunks
-    /// as "read", only when actual read starts.
+    /// "Lazy move" - means that reader actually change position and free occupied chunk,
+    /// only when actual read starts.
     #[inline]
     pub fn truncate_front(&self, len: usize){
         let mut list = self.0.list.lock();
@@ -80,8 +80,10 @@ impl<T, S: Settings> EventQueue<T, S>{
 
     /// Adds chunk with `new_capacity` capacity. All next writes will be on new chunk.
     ///
-    /// Use this, in conjunction with [clear](Self::clear) / [truncate_front](Self::truncate_front),
-    /// to reduce memory pressure ASAP.
+    /// If you configured [Settings::MAX_CHUNK_SIZE] to high value, use this, in conjunction
+    /// with [clear](Self::clear) / [truncate_front](Self::truncate_front), to reduce
+    /// memory pressure ASAP.
+    ///
     /// Total capacity will be temporarily increased, until readers get to the new chunk.
     #[inline]
     pub fn change_chunk_capacity(&self, new_capacity: u32){

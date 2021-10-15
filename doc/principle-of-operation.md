@@ -128,13 +128,33 @@ If we have only one chunk left, and previous chunk had the same size - we found 
 
 With `feature="double_buffering"` enabled, the biggest freed chunk will be stored for further reuse.
 
+## Tracking readers. Out-of-order chunks disposable.
+
+![](images/tracked_chunks.png)
+
+In order to be able to immediately dispose chunks on cleanup/truncate, we need to know which chunks
+are free from readers. To do that, we add "In" counter. Whenever "In" = "Out" - chunk is free of
+readers.
+
+On the EventQueue side:
+- Write lock prev.chunk_switch_mutex
+- If In == Out - it is safe to dispose chunk: 
+  - Change Next pointer to next chunk
+  - free chunk
+- Release mutex
+
+_We lock only left-side chunk mutex (with In), because Reader cannot get Out+=1, without In+=1.
+In other words, it cannot get into chunk by omitting left-side lock and In+=1. And reader moves
+left to right only._
+
+On the EventReader side, during chunk switch:
+- Read lock prev.chunk_switch_mutex
+- Read next chunk
+- Out+=1, Next.In+=1
+- Release mutex
+
 ## Optimisation techniques
 
 _TODO: AUTO_CLEANUP=false_
 
 _TODO: copy iter vs deferred read mark_
-
-## Aftermath
-
-Due to its loose-tied nature, `EventQueue` can not know its precise lower bound. This means - we don't know precise len.
-We can only speak about `EventQueue` capacity, or occupied memory.

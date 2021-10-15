@@ -6,7 +6,7 @@ pub(crate) use loom::sync::Arc;
 
 #[cfg(loom)]
 #[derive(Debug)]
-pub(crate) struct Mutex<T>(loom::sync::Mutex<T>);
+pub struct Mutex<T>(loom::sync::Mutex<T>);
 
 #[cfg(loom)]
 impl<T> Mutex<T>{
@@ -16,6 +16,10 @@ impl<T> Mutex<T>{
 
     pub fn lock(&self) -> loom::sync::MutexGuard<'_, T> {
         self.0.lock().unwrap()
+    }
+
+    pub fn as_mut_ptr(&self) -> *mut T {
+        self.data_ptr()
     }
 
     pub fn get_mut(&mut self) -> &mut T {
@@ -28,15 +32,16 @@ impl<T> Mutex<T>{
 
     pub fn data_ptr(&self) -> *mut T {
         // There is no way to get without lock in loom
-        unsafe{
-            use std::ops::DerefMut;
-            self.0.lock().unwrap().deref_mut() as *mut T
-        }
+        use std::ops::DerefMut;
+        self.0.lock().unwrap().deref_mut() as *mut T
     }
 }
 
 #[cfg(loom)]
-pub(crate) type SpinMutex<T> = Mutex<T>;
+pub type SpinMutex<T> = Mutex<T>;
+
+#[cfg(loom)]
+pub(crate) type SpinSharedMutex<T> = loom::sync::RwLock<T>;
 
 // ==========================================================================================
 
@@ -52,3 +57,6 @@ pub(crate) type Mutex<T> = lock_api::Mutex<spin::mutex::Mutex<(), spin::relax::Y
 
 #[cfg(not(loom))]
 pub(crate) use spin::mutex::{SpinMutex};
+
+#[cfg(not(loom))]
+pub(crate) use spin::rwlock::RwLock as SpinSharedMutex;

@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod test;
 
-use crate::sync::{Ordering, AtomicUsize};
+use crate::sync::{Ordering};
 use crate::sync::{Mutex, Arc};
 use crate::sync::{SpinMutex};
 
@@ -38,6 +38,7 @@ pub trait Settings{
     const MAX_CHUNK_SIZE : u32;
     const CLEANUP        : CleanupMode;
 
+    // for spmc/mpmc
     /// Lock on new chunk cleanup event. Will dead-lock if already locked.
     const LOCK_ON_NEW_CHUNK_CLEANUP: bool;
     /// Call cleanup on unsubscribe?
@@ -49,6 +50,8 @@ pub struct List<T, S: Settings>{
     last : *mut DynamicChunk<T, S>,
     chunk_id_counter: usize,
 
+    readers_count: usize,
+
     /// 0 - means no penult
     penult_chunk_size: u32,
 
@@ -59,10 +62,6 @@ pub struct List<T, S: Settings>{
 
 pub struct EventQueue<T, S: Settings>{
     pub(crate) list  : Mutex<List<T, S>>,
-
-    /// All atomic op relaxed. Just to speed up `try_clean` check (opportunistic check).
-    /// Mutated under list lock.
-    pub(crate) readers: AtomicUsize,
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
@@ -84,13 +83,12 @@ impl<T, S: Settings> EventQueue<T, S>
                 first: null_mut(),
                 last: null_mut(),
                 chunk_id_counter: 0,
-
+                readers_count:0,
                 penult_chunk_size : 0,
 
                 #[cfg(feature = "double_buffering")]
                 free_chunk: None,
             }),
-            readers : AtomicUsize::new(0),
             start_position: SpinMutex::new(Cursor{chunk: null(), index:0}),
             _pinned: PhantomPinned,
         });
@@ -242,30 +240,22 @@ impl<T, S: Settings> EventQueue<T, S>
     /// EventReader will start receive events from NOW.
     /// It will not see events that was pushed BEFORE subscription.
     pub fn subscribe(&self, list: &mut List<T, S>) -> EventReader<T, S>{
-        let prev_readers = self.readers.fetch_add(1, Ordering::Relaxed);
-        if prev_readers == 0{
+        if list.readers_count == 0{
             // Keep alive. Decrements in unsubscribe
             unsafe { Arc::increment_strong_count(self); }
         }
+        list.readers_count += 1;
 
         let last_chunk = unsafe{&*list.last};
         let chunk_state = last_chunk.chunk_state(Ordering::Relaxed);
-        let last_chunk_len = chunk_state.len();
-        let epoch = chunk_state.epoch();
 
-        let mut event_reader = EventReader{
-            position: Cursor{chunk: list.first, index: 0},
-            start_position_epoch: epoch
-        };
+        // Enter chunk
+        last_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
 
-        // Move to an end. This will increment read_completely_times in all passed chunks correctly.
-        event_reader.set_forward_position(
-            Cursor{
-                chunk: last_chunk,
-                index: last_chunk_len as usize
-            },
-            false);
-        event_reader
+        EventReader{
+            position: Cursor{chunk: last_chunk, index: chunk_state.len() as usize},
+            start_position_epoch: chunk_state.epoch()
+        }
     }
 
     // Called from EventReader Drop
@@ -276,30 +266,18 @@ impl<T, S: Settings> EventQueue<T, S>
         let this = unsafe { this_ptr.as_ref() };
         let mut list = this.list.lock();
 
-        // -1 read_completely_times for each chunk that reader passed
-        unsafe {
-            foreach_chunk(
-                list.first,
-                event_reader.position.chunk,
-                Ordering::Relaxed,      // we're under mutex
-                |chunk| {
-                    debug_assert!(
-                        !chunk.next(Ordering::Acquire).is_null()
-                    );
-                    chunk.read_completely_times().fetch_sub(1, Ordering::AcqRel);
-                    Continue(())
-                }
-            );
-        }
-
-        let prev_readers = this.readers.fetch_sub(1, Ordering::Relaxed);
+        // Exit chunk
+        unsafe{&*event_reader.position.chunk}.read_completely_times().fetch_add(1, Ordering::AcqRel);
 
         if S::CLEANUP_IN_UNSUBSCRIBE && S::CLEANUP != CleanupMode::Never{
-            this.cleanup_impl(&mut *list);
+            if list.first as *const _ == event_reader.position.chunk {
+                this.cleanup_impl(&mut *list);
+            }
         }
 
-        drop(list);
-        if prev_readers == 1{
+        list.readers_count -= 1;
+        if list.readers_count == 0{
+            drop(list);
             // Safe to self-destruct
             unsafe { Arc::decrement_strong_count(this_ptr.as_ptr()); }
         }
@@ -327,7 +305,6 @@ impl<T, S: Settings> EventQueue<T, S>
     }
 
     fn cleanup_impl(&self, list: &mut List<T, S>){
-        let readers_count = self.readers.load(Ordering::Relaxed);
         unsafe {
             // using _ptr version, because with &chunk - reference should be valid during whole
             // lambda function call. (according to miri and some rust borrowing rules).
@@ -337,8 +314,12 @@ impl<T, S: Settings> EventQueue<T, S>
                 list.last,
                 Ordering::Relaxed,      // we're under mutex
                 |chunk_ptr| {
+                    // Do not lock prev_chunk.chunk_switch_mutex because we traverse in order.
                     let chunk = &mut *chunk_ptr;
-                    if chunk.read_completely_times().load(Ordering::Acquire) != readers_count{
+                    let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
+                    let chunk_read_times = chunk.read_completely_times().load(Ordering::Acquire);
+                    // Cleanup only in order
+                    if chunk_readers != chunk_read_times {
                         return Break(());
                     }
 
@@ -355,6 +336,52 @@ impl<T, S: Settings> EventQueue<T, S>
         }
         if list.first == list.last{
             list.penult_chunk_size = 0;
+        }
+    }
+
+    /// This will traverse up to the start_point. And will do out-of-order cleanup.
+    /// This one slower then cleanup_impl.
+    fn force_cleanup_impl(&self, list: &mut List<T, S>){
+        self.cleanup_impl(list);
+        unsafe {
+            let terminal_chunk = (*self.start_position.as_mut_ptr()).chunk;
+            if terminal_chunk.is_null(){
+                return;
+            }
+            if (*list.first).id() >= (*terminal_chunk).id(){
+                return;
+            }
+
+            // cleanup_impl dealt with first chunk before. Omit.
+            let mut prev_chunk = list.first;
+            // using _ptr version, because with &chunk - reference should be valid during whole
+            // lambda function call. (according to miri and some rust borrowing rules).
+            // And we actually drop that chunk.
+            foreach_chunk_ptr_mut(
+                (*list.first).next(Ordering::Relaxed),
+                terminal_chunk,
+                Ordering::Relaxed,      // we're under mutex
+                |chunk| {
+                    // We need to lock only `prev_chunk`, because it is impossible
+                    // to get in `chunk` omitting chunk.readers_entered+1
+                    let lock = (*prev_chunk).chunk_switch_mutex().write();
+                        let chunk_readers = (*chunk).readers_entered().load(Ordering::Acquire);
+                        let chunk_read_times = (*chunk).read_completely_times().load(Ordering::Acquire);
+                        if chunk_readers != chunk_read_times {
+                            prev_chunk = chunk;
+                            return Continue(());
+                        }
+
+                        let next_chunk_ptr = (*chunk).next(Ordering::Relaxed);
+                        debug_assert!(!next_chunk_ptr.is_null());
+
+                        (*prev_chunk).set_next(next_chunk_ptr, Ordering::Release);
+                    drop(lock);
+
+                    Self::free_chunk(chunk, list);
+                    Continue(())
+                }
+            );
         }
     }
 
@@ -394,6 +421,8 @@ impl<T, S: Settings> EventQueue<T, S>
             chunk: last_chunk,
             index: chunk_len
         });
+
+        self.force_cleanup_impl(list);
     }
 
     pub fn truncate_front(&self, list: &mut List<T, S>, len: usize) {
@@ -402,6 +431,9 @@ impl<T, S: Settings> EventQueue<T, S>
             list.chunk_id_counter/*(*list.last).id*/ - (*list.first).id() + 1
         };
 
+        // TODO: subtract from total_capacity
+        // TODO: use small_vec
+        // TODO: loop if > 128?
         // there is no way we can have memory enough to hold > 2^64 bytes.
         debug_assert!(chunks_count<=128);
         let mut chunks : [*const DynamicChunk<T, S>; 128] = [null(); 128];
@@ -429,6 +461,7 @@ impl<T, S: Settings> EventQueue<T, S>
                     chunk: chunks[i],
                     index: total_len - len
                 });
+                self.force_cleanup_impl(list);
                 return;
             }
         }
@@ -443,6 +476,8 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 
+    /// O(n)
+    /// TODO: store current capacity
     pub fn total_capacity(&self, list: &List<T, S>) -> usize {
         let mut total = 0;
         unsafe {
@@ -476,7 +511,7 @@ impl<T, S: Settings> EventQueue<T, S>
 impl<T, S: Settings> Drop for EventQueue<T, S>{
     fn drop(&mut self) {
         let list = self.list.get_mut();
-        debug_assert!(self.readers.load(Ordering::Relaxed) == 0);
+        debug_assert!(list.readers_count == 0);
         unsafe{
             let mut node_ptr = list.first;
             while node_ptr != null_mut() {
@@ -540,7 +575,13 @@ pub(super) unsafe fn foreach_chunk_ptr_mut<T, F, S: Settings>
     debug_assert!(
         end_chunk_ptr.is_null()
             ||
-        std::ptr::eq((*start_chunk_ptr).event(), (*end_chunk_ptr).event()));
+        std::ptr::eq((*start_chunk_ptr).event(), (*end_chunk_ptr).event())
+    );
+    debug_assert!(
+        end_chunk_ptr.is_null()
+            ||
+        (*start_chunk_ptr).id() <= (*end_chunk_ptr).id()
+    );
 
     let mut chunk_ptr = start_chunk_ptr;
     while !chunk_ptr.is_null(){

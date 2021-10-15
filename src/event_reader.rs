@@ -4,7 +4,7 @@
 //
 
 use crate::sync::Ordering;
-use std::ptr::{NonNull, null_mut};
+use std::ptr::{NonNull};
 use crate::event_queue::{CleanupMode, EventQueue, foreach_chunk, Settings};
 use std::ops::ControlFlow::{Continue};
 use crate::cursor::Cursor;
@@ -22,49 +22,31 @@ unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
 impl<T, S: Settings> EventReader<T, S>
 {
     #[inline]
-    pub(super) fn set_forward_position(
+    fn fast_forward(
         &mut self,
         new_position: Cursor<T, S>,
         try_cleanup: bool   /*should be generic const*/
     ){
-        debug_assert!(new_position >= self.position);
-        let mut first_chunk_readers = 0;
+        // 1. Enter new_position chunk
+        let new_chunk = unsafe{&*new_position.chunk};
+        new_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
 
-        // 1. Mark passed chunks as read
-        unsafe {
-            foreach_chunk(
-                self.position.chunk,
-                new_position.chunk,
-                Ordering::Acquire,
-                |chunk| {
-                    debug_assert!(
-                        !chunk.next(Ordering::Acquire).is_null()
-                    );
-                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+        // 2. Mark current chunk read
+        let chunk = unsafe{&*self.position.chunk};
+        if /*constexpr*/ try_cleanup {
+            let event = chunk.event();
+            let readers_entered = chunk.readers_entered().load(Ordering::Acquire);
 
-                    if try_cleanup {
-                        if first_chunk_readers == 0{
-                            first_chunk_readers = prev_read+1;
-                        }
-                    }
-
-                    Continue(())
-                }
-            );
-        }
-
-        // Cleanup (optional)
-        if try_cleanup {
-            if first_chunk_readers != 0{
-                let event = unsafe {&*(*new_position.chunk).event()};
-                let readers_count = event.readers.load(Ordering::Acquire);
-                if first_chunk_readers >= readers_count{    // MORE or equal, just in case (this MT...)
-                    event.cleanup();
-                }
+            // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
+            let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+            if prev_read+1 >= readers_entered{
+                event.cleanup();
             }
+        } else {
+            chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
         }
 
-        // 2. Update EventReader chunk+index
+        // 3. Change position
         self.position = new_position;
     }
 
@@ -76,7 +58,7 @@ impl<T, S: Settings> EventReader<T, S>
         let event = unsafe{(*self.position.chunk).event()};
         let new_start_position = event.start_position.lock().clone();
         if self.position < new_start_position {
-            self.set_forward_position(
+            self.fast_forward(
                 new_start_position,
                 S::CLEANUP == CleanupMode::OnChunkRead
             );
@@ -91,7 +73,7 @@ impl<T, S: Settings> EventReader<T, S>
         let chunk_state = unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire);
         let epoch = chunk_state.epoch();
 
-        if epoch != self.start_position_epoch {
+        if /*unlikely*/ epoch != self.start_position_epoch {
             self.start_position_epoch = epoch;
             self.do_update_start_position_and_get_chunk_state()
         } else {
@@ -163,17 +145,22 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
                 return None;
             }
 
-            // have next chunk?
-            let next_chunk = unsafe{&*self.position.chunk}.next(Ordering::Acquire);
-            if next_chunk == null_mut(){
-                return None;
-            }
+            // acquire next chunk
+            let next_chunk = unsafe{
+                let chunk = &*self.position.chunk;
+                let _lock = chunk.chunk_switch_mutex().read();
+
+                let next = chunk.next(Ordering::Acquire);
+                debug_assert!(!next.is_null());
+
+                (*next).readers_entered().fetch_add(1, Ordering::AcqRel);
+                &*next
+            };
 
             // switch chunk
             self.position.chunk = next_chunk;
             self.position.index = 0;
-
-            self.chunk_state = unsafe{&*next_chunk}.chunk_state(Ordering::Acquire);
+            self.chunk_state = next_chunk.chunk_state(Ordering::Acquire);
 
             // Maybe 0, when new chunk is created, but item still not pushed.
             // It is possible rework `push`/`extend` in the way that this situation will not exists.
@@ -194,9 +181,52 @@ impl<'a, T, S: Settings> LendingIterator for Iter<'a, T, S>{
 impl<'a, T, S: Settings> Drop for Iter<'a, T, S>{
     #[inline]
     fn drop(&mut self) {
-        self.event_reader.set_forward_position(
-            self.position,
-            S::CLEANUP == CleanupMode::OnChunkRead
-        );
+        let try_cleanup = S::CLEANUP == CleanupMode::OnChunkRead;   // should be const
+
+        debug_assert!(self.position >= self.event_reader.position);
+        let mut need_cleanup = false;
+
+        let first_chunk = self.event_reader.position.chunk;
+        let end_chunk = self.position.chunk;
+
+        // 1. Mark passed chunks as read
+        unsafe {
+            // It is ok here to switch chunks without chunk_switch_mutex.
+            // Chunk already held by in-out counter imbalance.
+            foreach_chunk(
+                first_chunk,
+                end_chunk,
+                Ordering::Acquire,
+                |chunk| {
+                    debug_assert!(
+                        !chunk.next(Ordering::Acquire).is_null()
+                    );
+                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+
+                    if try_cleanup {
+                        // TODO: move out of loop and benchmark.
+                        if chunk as *const _ == first_chunk{
+                            let read = prev_read+1;
+                            let chunk_readers = chunk.readers_entered().load(Ordering::Acquire);
+                            if read >= chunk_readers {
+                                need_cleanup = true;
+                            }
+                        }
+                    }
+
+                    Continue(())
+                }
+            );
+        }
+
+        // Cleanup (optional)
+        if try_cleanup {
+            if need_cleanup{
+                unsafe{&*end_chunk}.event().cleanup();
+            }
+        }
+
+        // 2. Update EventReader chunk+index
+        self.event_reader.position = self.position;
     }
 }
