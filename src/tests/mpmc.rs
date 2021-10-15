@@ -193,7 +193,7 @@ fn mt_read_test() {
 #[test]
 #[cfg(any(not(miri), target_os = "linux"))]
 fn mt_write_read_test() {
-for _ in 0..100{
+for _ in 0..if cfg!(miri){10} else {100} {
     let writer_chunk = if cfg!(miri){ 1000 } else { 10000 };
     let writers_thread_count = 2;
     let readers_thread_count = 4;
