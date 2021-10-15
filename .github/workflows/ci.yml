@@ -54,7 +54,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build doc
-      run: cargo doc --lib
+      run: RUSTFLAGS="--deny warnings" cargo doc --lib
 
   loom:
     runs-on: ubuntu-latest

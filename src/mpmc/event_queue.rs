@@ -53,7 +53,7 @@ impl<T, S: Settings> EventQueue<T, S>{
     /// "Lazily move" all readers positions to the "end of the queue". From readers perspective,
     /// equivalent to conventional `clear`.
     ///
-    /// Immediately free all **unoccupied** chunks.
+    /// Immediately free all chunks, **unoccupied** by readers.
     ///
     /// "End of the queue" - is the queue's end position at the moment of the `clear` call.
     ///
@@ -68,7 +68,7 @@ impl<T, S: Settings> EventQueue<T, S>{
     /// "Lazily move" all readers positions to the `len`-th element from the end of the queue.
     /// From readers perspective, equivalent to conventional `truncate` from the other side.
     ///
-    /// Immediately free **unoccupied** chunks.
+    /// Immediately free chunks, **unoccupied** by readers.
     ///
     /// "Lazy move" - means that reader actually change position and free occupied chunk,
     /// only when actual read starts.

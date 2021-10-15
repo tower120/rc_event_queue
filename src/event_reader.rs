@@ -56,10 +56,10 @@ impl<T, S: Settings> EventReader<T, S>
     #[cold]
     fn do_update_start_position_and_get_chunk_state(&mut self) -> PackedChunkState {
         let event = unsafe{(*self.position.chunk).event()};
-        let new_start_position = event.start_position.lock().clone();
-        if self.position < new_start_position {
+        let start_position = event.start_position.lock();
+        if self.position < *start_position {
             self.fast_forward(
-                new_start_position,
+                *start_position,
                 S::CLEANUP == CleanupMode::OnChunkRead
             );
         }

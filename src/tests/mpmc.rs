@@ -178,7 +178,7 @@ fn clear_test() {
 }
 
 #[test]
-#[cfg(not(miri))]
+#[cfg(any(not(miri), target_os = "linux"))]
 fn mt_read_test() {
     for _ in 0..10{
         struct S{} impl Settings for S{
@@ -186,15 +186,15 @@ fn mt_read_test() {
             const MAX_CHUNK_SIZE: u32 = 512;
             const CLEANUP: CleanupMode = DefaultSettings::CLEANUP;
         }
-        mt_read_test_impl::<S>(4, 1000000);
+        mt_read_test_impl::<S>(4, if cfg!(miri){ 1000 } else { 1000000 });
     }
 }
 
 #[test]
-#[cfg(not(miri))]
+#[cfg(any(not(miri), target_os = "linux"))]
 fn mt_write_read_test() {
 for _ in 0..100{
-    let writer_chunk = 10000;
+    let writer_chunk = if cfg!(miri){ 1000 } else { 10000 };
     let writers_thread_count = 2;
     let readers_thread_count = 4;
     struct S{} impl Settings for S{

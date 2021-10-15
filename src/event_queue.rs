@@ -19,6 +19,7 @@ use crate::dynamic_chunk::{DynamicChunkRecycled};
 use crate::{StartPositionEpoch};
 
 /// This way you can control when chunk's memory deallocation happens.
+/// _In addition, some operations may cause deallocations as well._
 #[derive(PartialEq)]
 pub enum CleanupMode{
     /// Cleanup will be called when chunk fully read.
@@ -29,7 +30,7 @@ pub enum CleanupMode{
     OnChunkRead,
     /// Cleanup will be called when new chunk created.
     OnNewChunk,
-    /// Cleanup will never be called. You should call [EventQueue::cleanup] manually.
+    /// Cleanup will never be called. You should call `EventQueue::cleanup` manually.
     Never
 }
 
@@ -65,6 +66,7 @@ pub struct EventQueue<T, S: Settings>{
 
     /// Separate lock from list::start_position_epoch, is safe, because start_point_epoch encoded in
     /// chunk's atomic len+epoch.
+    // TODO: Make RWLock? Bench.
     pub(crate) start_position: SpinMutex<Cursor<T, S>>,
 
     _pinned: PhantomPinned,

@@ -6,7 +6,7 @@ Writes happens under lock, and does not block reads.
 
 Single-threaded read performance is between `Vec` and `VecDeque` for best-case scenario; 1.5-2x slower then `VecDeque` - for worse.
 
-Single-threaded write performance 4-5x slower then `VecDeque`. But writing with `EventQueue::extend` can give you `VecDeque`-like performance.
+Single-threaded write performance 2-3x slower then `VecDeque`. But writing with `EventQueue::extend` can give you `VecDeque`-like performance.
 
 Memory-wise there is only fixed overhead. Each reader is just kind a pointer. 
 
@@ -128,7 +128,7 @@ If we have only one chunk left, and previous chunk had the same size - we found 
 
 With `feature="double_buffering"` enabled, the biggest freed chunk will be stored for further reuse.
 
-## Tracking readers. Out-of-order chunks dispose.
+## Tracking readers. Out-of-order chunks disposal.
 
 ![](images/tracked_chunks.png)
 
@@ -152,6 +152,8 @@ On the EventReader side, during chunk switch:
 - Read next chunk
 - Out+=1, Next.In+=1
 - Release mutex
+
+Queue remains lockless up to the clear/truncate call, due to read lock.
 
 ## Optimisation techniques
 
