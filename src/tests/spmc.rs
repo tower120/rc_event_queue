@@ -17,10 +17,10 @@ fn basic_test(){
 }
 
 #[test]
-#[cfg(not(miri))]
+#[cfg(any(not(miri), target_os = "linux"))]
 fn mt_write_read_test() {
-for _ in 0..100{
-    let queue_size = 10000;
+for _ in 0..if cfg!(miri){10} else {100} {
+    let queue_size = if cfg!(miri){ 1000 } else { 10000 };
     let readers_thread_count = 4;
     struct S{} impl Settings for S{
         const MIN_CHUNK_SIZE: u32 = 32;
