@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 ### Changed
 - clear/truncate_front now dispose chunks not occupied by readers immediately! Which, at least partially, solves "emergency cleanup" problem.
 Now you don't have to have access to all readers!  

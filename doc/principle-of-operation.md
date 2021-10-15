@@ -128,7 +128,7 @@ If we have only one chunk left, and previous chunk had the same size - we found 
 
 With `feature="double_buffering"` enabled, the biggest freed chunk will be stored for further reuse.
 
-## Tracking readers. Out-of-order chunks disposable.
+## Tracking readers. Out-of-order chunks dispose.
 
 ![](images/tracked_chunks.png)
 
