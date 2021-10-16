@@ -17,7 +17,7 @@ fn basic_test(){
 }
 
 #[test]
-#[cfg(any(not(miri), target_os = "linux"))]
+#[cfg(any(not(miri), not(target_os = "windows")))]
 fn mt_write_read_test() {
 for _ in 0..if cfg!(miri){10} else {100} {
     let queue_size = if cfg!(miri){ 1000 } else { 10000 };
