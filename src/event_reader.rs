@@ -21,47 +21,43 @@ unsafe impl<T, S: Settings> Send for EventReader<T, S>{}
 
 impl<T, S: Settings> EventReader<T, S>
 {
-    #[inline]
-    fn fast_forward(
-        &mut self,
-        new_position: Cursor<T, S>,
-        try_cleanup: bool   /*should be generic const*/
-    ){
-        // 1. Enter new_position chunk
-        let new_chunk = unsafe{&*new_position.chunk};
-        new_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
-
-        // 2. Mark current chunk read
-        let chunk = unsafe{&*self.position.chunk};
-        if /*constexpr*/ try_cleanup {
-            let event = chunk.event();
-            let readers_entered = chunk.readers_entered().load(Ordering::Acquire);
-
-            // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
-            let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
-            if prev_read+1 >= readers_entered{
-                event.cleanup();
-            }
-        } else {
-            chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
-        }
-
-        // 3. Change position
-        self.position = new_position;
-    }
-
     // Have much better performance being non-inline. Occurs rarely.
     // This is the only reason this code - is a function.
     #[inline(never)]
     #[cold]
     fn do_update_start_position_and_get_chunk_state(&mut self) -> PackedChunkState {
         let event = unsafe{(*self.position.chunk).event()};
-        let start_position = event.start_position.lock();
-        if self.position < *start_position {
-            self.fast_forward(
-                *start_position,
-                S::CLEANUP == CleanupMode::OnChunkRead
-            );
+
+        // fast forward
+        {
+        let start_position_lock = event.start_position.lock();
+        if let Some(start_position) = *start_position_lock{
+            if self.position < start_position {
+
+                // 1. Enter new_position chunk
+                let new_chunk = unsafe{&*start_position.chunk};
+                new_chunk.readers_entered().fetch_add(1, Ordering::AcqRel);
+
+                // 2. Mark current chunk read
+                let chunk = unsafe{&*self.position.chunk};
+                if /*constexpr*/ S::CLEANUP == CleanupMode::OnChunkRead {
+                    let event = chunk.event();
+                    let readers_entered = chunk.readers_entered().load(Ordering::Acquire);
+
+                    // MORE or equal, just in case (this MT...). This check is somewhat opportunistic.
+                    let prev_read = chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+                    if prev_read+1 >= readers_entered{
+                        drop(start_position_lock);
+                        event.cleanup();
+                    }
+                } else {
+                    chunk.read_completely_times().fetch_add(1, Ordering::AcqRel);
+                }
+
+                // 3. Change position
+                self.position = start_position;
+            }
+        }
         }
 
         unsafe{&*self.position.chunk}.chunk_state(Ordering::Acquire)

@@ -179,6 +179,73 @@ fn clear_test() {
 
 #[test]
 #[cfg(any(not(miri), not(target_os = "windows")))]
+fn mt_push_truncate_test() {
+for _ in 0..if cfg!(miri){1} else {100}{
+    struct S{} impl Settings for S{
+        const MAX_CHUNK_SIZE: u32 = 256;
+    }
+
+    let event = EventQueue::<usize, S>::new();
+
+    let mut readers = Vec::new();
+    for _ in 0..2{
+        readers.push(EventReader::new(&event));
+    }
+
+    let writer_thread = {
+        let event = event.clone();
+        Box::new(thread::spawn(move || {
+            for i in 0..10000{
+                event.push(i);
+            }
+        }))
+    };
+
+    let stop_clear_flag = Arc::new(AtomicBool::new(false));
+    let clear_thread = {
+        let event = event.clone();
+        let stop_clear_flag = stop_clear_flag.clone();
+        Box::new(thread::spawn(move || {
+            let mut i = 0;
+            loop {
+                let stop = stop_clear_flag.load(Ordering::Acquire);
+                if stop{
+                    break;
+                }
+
+                if i == 1000{
+                    event.truncate_front(100);
+                    i = 0;
+                }
+                i += 1;
+                std::hint::spin_loop();
+            }
+        }))
+    };
+
+    // read
+    let mut threads = Vec::new();
+    for mut reader in readers{
+        let thread = Box::new(thread::spawn(move || {
+            // some work here
+            let _local_sum: usize = consume_copies(&mut reader.iter()).iter().sum();
+        }));
+        threads.push(thread);
+    }
+
+    writer_thread.join().unwrap();
+
+    stop_clear_flag.store(true, Ordering::Release);
+    clear_thread.join().unwrap();
+
+    for thread in threads{
+        thread.join().unwrap();
+    }
+}
+}
+
+#[test]
+#[cfg(any(not(miri), not(target_os = "windows")))]
 fn mt_read_test() {
     for _ in 0..10{
         struct S{} impl Settings for S{
