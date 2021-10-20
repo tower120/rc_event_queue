@@ -183,7 +183,7 @@ fn fuzzy_capacity_size_test(){
     use rand::Rng;
     let mut rng = rand::thread_rng();
     for _ in 0..100{
-        let size = rng.gen_range(0..100000 as usize);
+        let size = rng.gen_range(0..10000 as usize);
         let event = EventQueue::<usize, S>::new();
         let mut reader = EventReader::new(&event);
         event.extend(0..size);
