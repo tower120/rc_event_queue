@@ -28,8 +28,10 @@ Read - per thread performance degrades slowly, with each additional simultaneous
 _(Also remember, since `rc_event_queue` is message queue, and each reader read ALL queue -
 adding more readers does not consume queue faster)_
 
-Write - per thread performance degrades close to linearly, with each additional simultaneously writing thread. 
+Write - per thread performance degrades almost linearly, with each additional simultaneously writing thread. 
 (Due to being locked). Not applicable to `spmc`.
+
+N.B. But if there is no heavy contention - performance very close to single-threaded case.
 
 [See mpmc benchmarks](doc/mpmc_benchmarks.md).
 
@@ -93,7 +95,7 @@ assert!(sum(reader2.iter()) == 1100);
 ### Emergency cut
 
 If any of the readers did not read for a long time - it can retain queue from cleanup.
-This means that queue capacity will grow. On long run systems, you may want to periodically check `total_capacity`, 
+This means that queue capacity will grow. On long runs with unpredictable systems, you may want to periodically check `total_capacity`, 
 and if it grows too much - you may want to force-cut/clear it.
 
 ```rust
@@ -104,18 +106,20 @@ if event.total_capacity() > 100000{
     event.truncate_front(1000);     // leave some of the latest messages to read
     
     // If you set to Settings::MAX_CHUNK_SIZE to high value,
-    // This will reduce chunk size on next writes.
+    // this will reduce chunk size.
     event.change_chunk_size(2048);
 
-    // If you do have access to all readers - this will move readers forward,
-    // and free the rest of the chunks.
+    // If you DO have access to all readers (you probably don't) - 
+    // this will move readers forward, and free the chunks occupied by readers.
+    // Under normal conditions, this is not necessary, since readers will jump
+    // forward to another chunk immediately on the next iter() call.
     for reader in readers{
         reader.update_position();
         // reader.iter();   // this have same effect as above
     }
 }
-
 ```
+Even if some reader will stop read forever - you'll only lose/leak chunk directly occupied by reader. 
 
 ### Optimisation
 

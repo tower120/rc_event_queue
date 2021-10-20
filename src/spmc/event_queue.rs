@@ -6,7 +6,7 @@ use crate::CleanupMode;
 
 /// See [mpmc](crate::mpmc::EventQueue) documentation.
 ///
-/// Only [cleanup] and `unsubscribe`(on [EventReader::drop]) are synchronized.
+/// Only [cleanup](EventQueue::cleanup) and `unsubscribe`(on `EventReader::drop`) are synchronized.
 /// Everything else - overhead free.
 ///
 /// Insert performance in the `std::vec::Vec` league.

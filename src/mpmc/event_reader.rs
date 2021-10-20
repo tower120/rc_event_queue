@@ -28,7 +28,7 @@ impl<T, S: Settings> EventReader<T, S>{
     /// This is consuming iterator. Return references.
     /// Iterator items references should not outlive iterator.
     ///
-    /// Read counters of affected chunks updated in [Iter::drop].
+    /// Read counters of affected chunks updated in `Iter::drop`.
     #[inline]
     pub fn iter(&mut self) -> Iter<T, S>{
         Iter{ 0: self.0.iter() }
