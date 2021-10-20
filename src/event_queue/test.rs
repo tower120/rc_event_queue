@@ -1,9 +1,10 @@
 use crate::mpmc::{EventQueue, EventReader, Settings, DefaultSettings};
-use crate::CleanupMode;
+use crate::{CleanupMode, LendingIterator};
 use std::ptr::null;
 use std::ops::ControlFlow::Continue;
 use std::ops::Deref;
 use itertools::assert_equal;
+use rand::Rng;
 use crate::event_queue::{foreach_chunk, List};
 use crate::sync::Ordering;
 use crate::tests::utils::{consume_copies, skip};
@@ -38,6 +39,23 @@ fn get_chunks_lens<T, S: Settings>(event_queue: &EventQueue<T, S>) -> Vec<usize>
         });
     }
     chunk_lens
+}
+
+fn factual_capacity<T, S: Settings>(event_queue: &EventQueue<T, S>) -> usize {
+    let list = &event_queue.0.list.lock();
+    let mut total = 0;
+    unsafe {
+        foreach_chunk(
+            list.first,
+            null(),
+            Ordering::Relaxed,      // we're under mutex
+            |chunk| {
+                total += chunk.capacity();
+                Continue(())
+            }
+        );
+    }
+    total
 }
 
 
@@ -158,6 +176,26 @@ fn capacity_test(){
 
     assert_eq!(event.chunk_capacity(), 16);
     assert_eq!(event.total_capacity(), get_chunks_capacities(&event).iter().sum());
+}
+
+#[test]
+fn fuzzy_capacity_size_test(){
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    for _ in 0..100{
+        let size = rng.gen_range(0..100000 as usize);
+        let event = EventQueue::<usize, S>::new();
+        let mut reader = EventReader::new(&event);
+        event.extend(0..size);
+        {
+            let mut iter = reader.iter();
+            for _ in 0..rng.gen_range(0..1000){
+                iter.next();
+            }
+        }
+
+        assert_eq!(event.total_capacity(), factual_capacity(&event));
+    }
 }
 
 #[test]

@@ -50,8 +50,9 @@ pub struct List<T, S: Settings>{
     first: *mut DynamicChunk<T, S>,
     last : *mut DynamicChunk<T, S>,
     chunk_id_counter: usize,
+    total_capacity: usize,
 
-    readers_count: usize,
+    readers_count: u32,
 
     /// 0 - means no penult
     penult_chunk_size: u32,
@@ -87,6 +88,7 @@ impl<T, S: Settings> EventQueue<T, S>
                 last: null_mut(),
                 chunk_id_counter: 0,
                 readers_count:0,
+                total_capacity:new_capacity as usize,
                 penult_chunk_size : 0,
 
                 #[cfg(feature = "double_buffering")]
@@ -152,6 +154,7 @@ impl<T, S: Settings> EventQueue<T, S>
         node.set_next(new_node, Ordering::Release);
         list.last = new_node;
         list.penult_chunk_size = node.capacity() as u32;
+        list.total_capacity += size;
 
         unsafe{&mut *new_node}
     }
@@ -299,6 +302,8 @@ impl<T, S: Settings> EventQueue<T, S>
                 }
             }
         }
+
+        list.total_capacity -= (*chunk).capacity();
 
         #[cfg(not(feature = "double_buffering"))]
         {
@@ -495,27 +500,12 @@ impl<T, S: Settings> EventQueue<T, S>
         self.add_chunk_sized(&mut *list, new_capacity as usize);
     }
 
-    /// O(n)
-    /// TODO: store current capacity
     pub fn total_capacity(&self, list: &List<T, S>) -> usize {
-        let mut total = 0;
-        unsafe {
-            foreach_chunk(
-                list.first,
-                null(),
-                Ordering::Relaxed,      // we're under mutex
-                |chunk| {
-                    total += chunk.capacity();
-                    Continue(())
-                }
-            );
-        }
-        total
+        list.total_capacity
     }
 
     pub fn chunk_capacity(&self, list: &List<T, S>) -> usize {
-        unimplemented!()
-        //unsafe { (*list.last).capacity() }
+        unsafe { (*list.last).capacity() }
     }
 
 /*
