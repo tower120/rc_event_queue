@@ -164,7 +164,7 @@ impl<T, S: Settings> EventQueue<T, S>
         if S::CLEANUP == CleanupMode::OnNewChunk{
             // this should acts as compile-time-if.
             if S::LOCK_ON_NEW_CHUNK_CLEANUP{
-                let _lock = unsafe{ self.list.raw().lock() };
+                let _lock = self.list.lock();
                 self.cleanup_impl(list);
             } else {
                 self.cleanup_impl(list);
