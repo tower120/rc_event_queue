@@ -6,7 +6,6 @@
 Now you don't have to have access to all readers!  
 - Subscribe/unsubscribe now O(1).
 - EventQueue::total_capacity now O(1).
-- EventQueue::truncate_front now faster.
 
 ## 0.4.1
 ### Added
