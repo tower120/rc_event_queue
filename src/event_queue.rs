@@ -481,10 +481,18 @@ impl<T, S: Settings> EventQueue<T, S>
             let chunk_len = chunk.chunk_state(Ordering::Relaxed).len() as usize;
             total_len += chunk_len;
             if total_len >= len{
-                self.set_start_position(list, Cursor {
+                let new_start_position = Cursor {
                     chunk: chunks[i],
                     index: total_len - len
-                });
+                };
+                // Do we actually need to truncate?
+                if let Some(start_position) = unsafe{*self.start_position.as_mut_ptr()}{
+                    if start_position >= new_start_position{
+                        return;
+                    }
+                }
+
+                self.set_start_position(list, new_start_position);
                 self.force_cleanup_impl(list);
                 return;
             }
