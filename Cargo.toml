@@ -2,7 +2,7 @@
 name = "rc_event_queue"
 authors = ["Andrey Diduh <tower120@gmail.com>"]
 license = "MIT OR Apache-2.0"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2018"
 description = "VecDeque-like fast, unbounded, FIFO, concurent read-lock-free message queue."
 repository = "https://github.com/tower120/rc_event_queue"
