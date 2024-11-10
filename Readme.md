@@ -3,7 +3,10 @@
 [![CI](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml)
 
 > [!WARNING]  
-> Project deprecated in favor of [chute](https://github.com/tower120/chute/).
+> Project is deprecated in favor of [chute](https://github.com/tower120/chute/).
+> 
+> [Chute](https://github.com/tower120/chute/) is a continuation of this project, featuring truly lock-free MPMC 
+> writers that are superlinearly faster in highly concurrent scenarios.
 
 ## Reader counted event queue
 
