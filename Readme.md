@@ -2,6 +2,8 @@
 [![Docs](https://docs.rs/rc_event_queue/badge.svg)](https://docs.rs/rc_event_queue)
 [![CI](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/tower120/rc_event_queue/actions/workflows/ci.yml)
 
+> Project deprecated in favor of [chute](https://github.com/tower120/chute/).
+
 ## Reader counted event queue
 
 Fast, concurrent FIFO event queue _(or message queue)_. Multiple consumers receive every message.
