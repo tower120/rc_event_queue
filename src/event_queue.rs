@@ -82,7 +82,7 @@ impl<T, S: Settings> EventQueue<T, S>
     pub fn with_capacity(new_capacity: u32) -> Pin<Arc<Self>>{
         assert!(S::MIN_CHUNK_SIZE <= new_capacity && new_capacity <= S::MAX_CHUNK_SIZE);
 
-        let this = Arc::pin(Self{
+        let this = Arc::new(Self{
             list: Mutex::new(List{
                 first: null_mut(),
                 last: null_mut(),
@@ -101,13 +101,13 @@ impl<T, S: Settings> EventQueue<T, S>
         let node = DynamicChunk::<T, S>::construct(
             0, StartPositionEpoch::zero(), &*this, new_capacity as usize);
 
-        unsafe {
-            let event = &mut *(&*this as *const _ as *mut EventQueue<T, S>);
-            event.list.get_mut().first = node;
-            event.list.get_mut().last  = node;
+        {
+            let mut list = this.list.lock();
+            list.first = node;
+            list.last  = node;
         }
 
-        this
+        unsafe{ Pin::new_unchecked(this) }
     }
 
     #[inline]
